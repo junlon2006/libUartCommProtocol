@@ -32,7 +32,6 @@ extern "C" {
 
 typedef unsigned short      CommCmd;
 typedef unsigned short      CommPayloadLen;
-typedef unsigned char       CommType;
 typedef int                 (*CommWriteHandler)(char *buf, int len);
 
 #define UNI_COMM_TYPE_BASE  (0)
@@ -78,14 +77,13 @@ void CommProtocolFinal(void);
 
 /**
  * @brief send one packet(communication protocol frame format)
- * @param type customer type, 0 means Unisound
  * @param cmd command type, should define as enum (such as power_on、power_off)
  * @param payload the payload of cmd, can set as NULL
  * @param payload_len the payload length
  * @param attribute the attribute for this packet, such as packet need ACK
  * @return 0 means success, other means failed
  */
-int CommProtocolPacketAssembleAndSend(CommType type, CommCmd cmd,
+int CommProtocolPacketAssembleAndSend(CommCmd cmd,
                                       char *payload,
                                       CommPayloadLen payload_len,
                                       CommAttribute *attribute);

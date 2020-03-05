@@ -32,12 +32,12 @@
 #include <sys/time.h>
 
 #define UART_COMM_TAG                 "uart_comm"
-#define UNI_COMM_SYNC_VALUE           (0xFF)
 
 #define DEFAULT_PROTOCOL_BUF_SIZE     (16)
 #define PROTOCOL_BUF_GC_TRIGGER_SIZE  (256)
 #define PROTOCOL_BUF_SUPPORT_MAX_SIZE (8192)
 
+//TODO need refactor
 #define WAIT_ACK_TIMEOUT_MSEC         (150)
 /* make sure ONE_FRAME_BYTE_TIMEOUT_MSEC < WAIT_ACK_TIMEOUT_MSEC
  * otherwise resend cannot work, set
@@ -52,16 +52,16 @@
 #define false                         0
 #define true                          1
 
-/*--------------------------------------------------------------------------------*/
-/*                   layout of uart communication app protocol                    */
-/*--------------------------------------------------------------------------------*/
-/*-1byte-|-1byte-|-1byte-|-1byte-|---2byte---|---2byte---|---2byte---|---N byte---*/
-/* SYNC  |  seq  | type  |  ctrl |  command  | checksum  |payload len|   payload  */
-/*--------------------------------------------------------------------------------*/
+/*-----------------------------------------------------------------*/
+/*           layout of uart communication app protocol             */
+/*-----------------------------------------------------------------*/
+/*--6byte-|-1byte-|-1byte-|-2byte-|-2byte-|-2byte-|-2byte-|-N byte-*/
+/*"uArTcP"|  seq  |  ctrl |  cmd  | crc16 |  len  |cs(len)|payload */
+/*-----------------------------------------------------------------*/
 
-/*--------------------------------ack frame---------------------------------------*/
-/*  0xFF | seqNum|  0x0  |  0x0  |    0x0    |   crc16   |    0x0    |    NULL    */
-/*--------------------------------------------------------------------------------*/
+/*---------------------------ack frame-----------------------------*/
+/*"uArTcP"|  seq  |  0x0  |  0x0  | crc16 |  0x0  |  0x0  |  NULL  */
+/*-----------------------------------------------------------------*/
 
 /*---------------------------------*/
 /*-------------control-------------*/
@@ -79,20 +79,22 @@ typedef enum {
 } Control;
 
 typedef enum {
-  LAYOUT_SYNC_IDX             = 0,
-  LAYOUT_PAYLOAD_LEN_LOW_IDX  = 8,
-  LAYOUT_PAYLOAD_LEN_HIGH_IDX = 9,
+  LAYOUT_SYNC_IDX                 = 0,
+  LAYOUT_PAYLOAD_LEN_LOW_IDX      = 12,
+  LAYOUT_PAYLOAD_LEN_HIGH_IDX     = 13,
+  LAYOUT_PAYLOAD_LEN_CRC_LOW_IDX  = 14,
+  LAYOUT_PAYLOAD_LEN_CRC_HIGH_IDX = 15,
 } CommLayoutIndex;
 
 typedef struct {
-  CommSync       sync;      /* must be UNI_COMM_SYNC_VALUE */
+  unsigned char  sync[6];   /* must be "uArTcP" */
   CommSequence   sequence;  /* sequence number */
-  CommType       type;      /* customer type */
   CommControl    control;   /* header ctrl */
   CommCmd        cmd;       /* command type, such as power on, power off etc */
-  CommChecksum   checksum;      /* checksum of packet, use crc16 */
-  CommPayloadLen payload_len;   /* the length of payload */
-  char           payload[0];    /* the payload */
+  CommChecksum   checksum;         /* checksum of packet, use crc16 */
+  CommPayloadLen payload_len;      /* the length of payload */
+  CommChecksum   payload_len_crc16;/* the crc16 of payload_len */
+  char           payload[0];       /* the payload */
 } PACKED CommProtocolPacket;
 
 typedef struct {
@@ -104,6 +106,7 @@ typedef struct {
   char                  *protocol_buffer;
 } CommProtocolBusiness;
 
+static unsigned char        g_sync[6] = {'u', 'A', 'r', 'T', 'c', 'P'};
 static CommProtocolBusiness g_comm_protocol_business;
 
 static void _register_write_handler(CommWriteHandler handler) {
@@ -115,11 +118,13 @@ static void _unregister_write_handler() {
 }
 
 static void _sync_set(CommProtocolPacket *packet) {
-  packet->sync = UNI_COMM_SYNC_VALUE;
+  int i;
+  for (i = 0; i < sizeof(g_sync); i++) {
+    packet->sync[i] = g_sync[i];
+  }
 }
 
-static void _sequence_set(CommProtocolPacket *packet,
-                          CommSequence seq,
+static void _sequence_set(CommProtocolPacket *packet, CommSequence seq,
                           uni_bool is_ack_packet) {
   if (is_ack_packet) {
     packet->sequence = seq;
@@ -130,10 +135,6 @@ static void _sequence_set(CommProtocolPacket *packet,
 
 static CommSequence _current_sequence_get() {
   return g_comm_protocol_business.sequence - 1;
-}
-
-static void _product_type_set(CommProtocolPacket *packet, CommType type) {
-  packet->type = type;
 }
 
 static void _bit_set(CommControl *control, int index) {
@@ -158,11 +159,6 @@ static void _control_set(CommProtocolPacket *packet, uni_bool reliable) {
   }
 }
 
-CommType uni_comm_protocol_product_type_get(CommProtocolPacket *packet,
-                                            CommType type) {
-  return packet->type;
-}
-
 static void _cmd_set(CommProtocolPacket *packet, CommCmd cmd) {
   packet->cmd = cmd;
 }
@@ -170,6 +166,10 @@ static void _cmd_set(CommProtocolPacket *packet, CommCmd cmd) {
 static void _payload_len_set(CommProtocolPacket *packet,
                              CommPayloadLen payload_len) {
   packet->payload_len = payload_len;
+}
+
+static void _payload_len_crc16_set(CommProtocolPacket *packet) {
+  packet->payload_len_crc16 = crc16((const char *)&packet->payload_len, sizeof(CommPayloadLen));
 }
 
 static CommPayloadLen _payload_len_get(CommProtocolPacket *packet) {
@@ -211,8 +211,7 @@ static void _set_acked_sync_flag() {
 }
 
 static uni_bool _is_acked_packet(CommProtocolPacket *protocol_packet) {
-  return (protocol_packet->type == 0 &&
-          protocol_packet->cmd == 0 &&
+  return (protocol_packet->cmd == 0 &&
           protocol_packet->sequence == _current_sequence_get() &&
           protocol_packet->payload_len == 0);
 }
@@ -223,6 +222,7 @@ static int _wait_ack(CommAttribute *attribute) {
   if (NULL == attribute || !attribute->reliable) {
     return 0;
   }
+
   //TODO stupid timeout, use select perf???
   while (timeout > 0) {
     timeout -= 5;
@@ -231,15 +231,16 @@ static int _wait_ack(CommAttribute *attribute) {
       break;
     }
   }
+
   if (!g_comm_protocol_business.acked) {
     LOGW(UART_COMM_TAG, "wait uart ack timeout");
   }
+
   return g_comm_protocol_business.acked ? 0 : E_UNI_COMM_PAYLOAD_ACK_TIMEOUT;
 }
 
 static CommProtocolPacket* _packet_alloc(int payload_len) {
-  return (CommProtocolPacket *)uni_malloc(sizeof(CommProtocolPacket) +
-                                          payload_len);
+  return (CommProtocolPacket *)uni_malloc(sizeof(CommProtocolPacket) + payload_len);
 }
 
 static void _packet_free(CommProtocolPacket *packet) {
@@ -252,33 +253,37 @@ static int _resend_status(CommAttribute *attribute, int *resend_times) {
   if (0 == ret) {
     return 0;
   }
+
   if (*resend_times > 0) {
     *resend_times = *resend_times - 1;
     return RESENDING;
   }
+
   return ret;
 }
 
 static int _write_uart(CommProtocolPacket *packet, CommAttribute *attribute) {
   int ret = 0;
   int resend_times = TRY_RESEND_TIMES;
+
   if (NULL != g_comm_protocol_business.on_write) {
     /* sync uart write, we use mutex lock */
     pthread_mutex_lock(&g_comm_protocol_business.mutex);
     _unset_acked_sync_flag();
+
     do {
-      g_comm_protocol_business.on_write((char *)packet,
-                                        (int)_packet_len_get(packet));
+      g_comm_protocol_business.on_write((char *)packet, (int)_packet_len_get(packet));
       LOGD(UART_COMM_TAG, "resend times=%d", resend_times);
       ret = _resend_status(attribute, &resend_times);
     } while (RESENDING == ret);
+
     pthread_mutex_unlock(&g_comm_protocol_business.mutex);
   }
+
   return ret;
 }
 
 static void _assmeble_packet(CommProtocolPacket *packet,
-                             CommType type,
                              CommCmd cmd,
                              char *payload,
                              CommPayloadLen payload_len,
@@ -287,11 +292,11 @@ static void _assmeble_packet(CommProtocolPacket *packet,
                              uni_bool is_ack_packet) {
   _sync_set(packet);
   _sequence_set(packet, seq, is_ack_packet);
-  _product_type_set(packet, type);
   _control_set(packet, reliable);
   _cmd_set(packet, cmd);
   _payload_set(packet, payload, payload_len);
   _payload_len_set(packet, payload_len);
+  _payload_len_crc16_set(packet);
   _checksum_calc(packet);
 }
 
@@ -299,8 +304,7 @@ static uni_bool _is_protocol_buffer_overflow(int length) {
   return length >= PROTOCOL_BUF_SUPPORT_MAX_SIZE;
 }
 
-static int _assemble_and_send_frame(CommType type,
-                                    CommCmd cmd,
+static int _assemble_and_send_frame(CommCmd cmd,
                                     char *payload,
                                     CommPayloadLen payload_len,
                                     CommAttribute *attribute,
@@ -311,24 +315,25 @@ static int _assemble_and_send_frame(CommType type,
                                    payload_len)) {
     return E_UNI_COMM_PAYLOAD_TOO_LONG;
   }
+
   CommProtocolPacket *packet = _packet_alloc(payload_len);
   if (NULL == packet) {
     return E_UNI_COMM_ALLOC_FAILED;
   }
-  _assmeble_packet(packet, type, cmd, payload, payload_len,
+
+  _assmeble_packet(packet, cmd, payload, payload_len,
                    attribute && attribute->reliable,
                    seq, is_ack_packet);
    ret = _write_uart(packet, attribute);
   _packet_free(packet);
+
   return ret;
 }
 
-int CommProtocolPacketAssembleAndSend(CommType type, CommCmd cmd,
-                                      char *payload,
+int CommProtocolPacketAssembleAndSend(CommCmd cmd, char *payload,
                                       CommPayloadLen payload_len,
                                       CommAttribute *attribute) {
-  return _assemble_and_send_frame(type, cmd, payload, payload_len,
-                                  attribute, 0, false);
+  return _assemble_and_send_frame(cmd, payload, payload_len, attribute, 0, false);
 }
 
 static CommPacket* _packet_disassemble(CommProtocolPacket *protocol_packet) {
@@ -337,15 +342,18 @@ static CommPacket* _packet_disassemble(CommProtocolPacket *protocol_packet) {
     LOGE(UART_COMM_TAG, "checksum failed");
     return NULL;
   }
+
   packet = uni_malloc(sizeof(CommPacket) + _payload_len_get(protocol_packet));
   if (NULL == packet) {
     LOGE(UART_COMM_TAG, "alloc memory failed");
     return NULL;
   }
+
   packet->cmd = protocol_packet->cmd;
   packet->payload_len = _payload_len_get(protocol_packet);
   memcpy(packet->payload, _payload_get(protocol_packet),
          _payload_len_get(protocol_packet));
+
   return packet;
 }
 
@@ -360,8 +368,7 @@ static void _enlarge_protocol_buffer(char **orginal, int *orginal_len) {
 }
 
 /* small heap memory stays alway, only garbage collection big bins*/
-static void _try_garbage_collection_protocol_buffer(char **buffer,
-                                                    int *length) {
+static void _try_garbage_collection_protocol_buffer(char **buffer, int *length) {
   if (*length >= PROTOCOL_BUF_GC_TRIGGER_SIZE) {
     uni_free(*buffer);
     *buffer = NULL;
@@ -370,9 +377,10 @@ static void _try_garbage_collection_protocol_buffer(char **buffer,
   }
 }
 
-static void _reset_protocol_buffer_status(int *index, int *length) {
+static void _reset_protocol_buffer_status(int *index, int *length, uint16_t *crc) {
   *index = 0;
   *length = 0;
+  *crc = 0;
 }
 
 static void _protocol_buffer_alloc(char **buffer, int *length, int index) {
@@ -381,6 +389,7 @@ static void _protocol_buffer_alloc(char **buffer, int *length, int index) {
     LOGD(UART_COMM_TAG, "init buffer=%p, len=%d", *buffer, *length);
     return;
   }
+
   if (*length <= index) {
     _enlarge_protocol_buffer(buffer, length);
     LOGD(UART_COMM_TAG, "protocol buffer enlarge. p=%p, new len=%d",
@@ -390,7 +399,7 @@ static void _protocol_buffer_alloc(char **buffer, int *length, int index) {
 }
 
 static void _send_ack_frame(CommSequence seq) {
-  _assemble_and_send_frame(0, 0, NULL, 0, NULL, seq, true);
+  _assemble_and_send_frame(0, NULL, 0, NULL, seq, true);
   LOGD(UART_COMM_TAG, "send ack seq=%d", seq);
 }
 
@@ -416,24 +425,29 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
     LOGW(UART_COMM_TAG, "donot register recv_frame hook");
     return;
   }
+
   /* ack frame donnot notify application, ignore it now */
   if (_is_acked_packet(protocol_packet)) {
     LOGT(UART_COMM_TAG, "recv ack frame");
     _set_acked_sync_flag();
     return;
   }
+
   /* disassemble protocol buffer */
   CommPacket* packet = _packet_disassemble(protocol_packet);
   if (NULL == packet) {
     LOGW(UART_COMM_TAG, "disassemble packet failed");
     return;
   }
+
   /* ack automatically when ack attribute set */
   _do_ack(protocol_packet);
+
   /* notify application when not ack frame nor duplicate frame */
   if (!_is_duplicate_frame(protocol_packet)) {
     g_comm_protocol_business.on_recv_frame(packet);
   }
+
   uni_free(packet);
 }
 
@@ -442,6 +456,7 @@ static long _get_clock_time_ms(void) {
   if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
     return (ts.tv_sec * 1000L + (ts.tv_nsec / 1000000));
   }
+
   return 0;
 }
 
@@ -454,21 +469,28 @@ static uni_bool _bytes_coming_speed_too_slow(int index) {
     timeout = true;
     LOGW(UART_COMM_TAG, "[%u->%u]", last_byte_coming_timestamp, now);
   }
+
   last_byte_coming_timestamp = now;
   return timeout;
 }
 
-static void _protocol_buffer_generate_byte_by_byte(char recv_c) {
+static uni_bool _is_payload_len_crc16_valid(CommPayloadLen length, CommChecksum crc) {
+  return crc == crc16((const char *)&length, sizeof(CommPayloadLen));
+}
+
+static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
   static int index = 0;
   static int length = 0;
+  static uint16_t length_crc16 = 0;
   static int protocol_buffer_length = DEFAULT_PROTOCOL_BUF_SIZE;
   /* check timestamp to reset status when physical error */
   if (_bytes_coming_speed_too_slow(index)) {
     LOGT(UART_COMM_TAG, "reset protocol buffer automatically[%d]", index);
-    _reset_protocol_buffer_status(&index, &length);
+    _reset_protocol_buffer_status(&index, &length, &length_crc16);
     _try_garbage_collection_protocol_buffer( \
         &g_comm_protocol_business.protocol_buffer, &protocol_buffer_length);
   }
+
   /* protect heap use, cannot alloc large than 8K now */
   if (_is_protocol_buffer_overflow(protocol_buffer_length)) {
     /* drop remain bytes of this frame*/
@@ -476,49 +498,72 @@ static void _protocol_buffer_generate_byte_by_byte(char recv_c) {
       length--;
       return;
     }
-    _reset_protocol_buffer_status(&index, &length);
+    _reset_protocol_buffer_status(&index, &length, &length_crc16);
     _try_garbage_collection_protocol_buffer( \
         &g_comm_protocol_business.protocol_buffer, &protocol_buffer_length);
     LOGW(UART_COMM_TAG, "recv invalid frame, payload too long");
     return;
   }
+
   _protocol_buffer_alloc(&g_comm_protocol_business.protocol_buffer,
                          &protocol_buffer_length, index);
+
   /* get frame header sync byte */
-  if (LAYOUT_SYNC_IDX == index) {
-    if (UNI_COMM_SYNC_VALUE == (unsigned char)recv_c) {
+  if (index <= LAYOUT_SYNC_IDX + 5) {
+    if (recv_c == (unsigned char)g_sync[index]) {
       g_comm_protocol_business.protocol_buffer[index++] = recv_c;
     } else {
+      _reset_protocol_buffer_status(&index, &length, &length_crc16);
       LOGW(UART_COMM_TAG, "nonstandord sync byte, please check");
     }
     return;
   }
+
   /* get payload length (low 8 bit)*/
   if (LAYOUT_PAYLOAD_LEN_LOW_IDX == index) {
     length = recv_c;
     LOGD(UART_COMM_TAG, "len low=%d", length);
   }
+
   /* get payload length (high 8 bit)*/
   if (LAYOUT_PAYLOAD_LEN_HIGH_IDX == index) {
     length += (((unsigned short)recv_c) << 8);
     LOGD(UART_COMM_TAG, "length=%d", length);
   }
+
+  if (LAYOUT_PAYLOAD_LEN_CRC_LOW_IDX == index) {
+    length_crc16 = recv_c;
+    LOGD(UART_COMM_TAG, "len crc low=%d", length_crc16);
+  }
+
+  if (LAYOUT_PAYLOAD_LEN_CRC_HIGH_IDX == index) {
+    length_crc16 += (((unsigned short)recv_c) << 8);
+    LOGD(UART_COMM_TAG, "length_crc16=%d", length_crc16);
+    if (!_is_payload_len_crc16_valid(length, length_crc16)) {
+      LOGE(UART_COMM_TAG, "length crc check failed");
+      _reset_protocol_buffer_status(&index, &length, &length_crc16);
+      return;
+    }
+  }
+
   /* set protocol header */
   if (index < sizeof(CommProtocolPacket)) {
     g_comm_protocol_business.protocol_buffer[index++] = recv_c;
     goto L_END;
   }
+
   /* set protocol payload */
   if (sizeof(CommProtocolPacket) <= index && 0 < length) {
     g_comm_protocol_business.protocol_buffer[index++] = recv_c;
     length--;
   }
+
 L_END:
   /* callback protocol buffer */
   if (sizeof(CommProtocolPacket) <= index && 0 == length) {
     LOGD(UART_COMM_TAG, "assemble new frame, now callback");
     _one_protocol_frame_process(g_comm_protocol_business.protocol_buffer);
-    _reset_protocol_buffer_status(&index, &length);
+    _reset_protocol_buffer_status(&index, &length, &length_crc16);
     _try_garbage_collection_protocol_buffer( \
         &g_comm_protocol_business.protocol_buffer, &protocol_buffer_length);
   }
@@ -526,7 +571,7 @@ L_END:
 
 void CommProtocolReceiveUartData(char *buf, int len) {
   for (int i = 0; i < len; i++) {
-    _protocol_buffer_generate_byte_by_byte(buf[i]);
+    _protocol_buffer_generate_byte_by_byte((unsigned char)buf[i]);
   }
 }
 
