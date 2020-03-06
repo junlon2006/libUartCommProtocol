@@ -154,7 +154,9 @@ static void _fill_customer_info(char *buf, int len, char *fmt, va_list args,
 static void _save_log_2_file(char *buf, int len) {
   if (0 < g_log_file.fd && 0 < len) {
     pthread_mutex_lock(&g_log_file.mutex);
-    write(g_log_file.fd, buf, len);
+    if (len != write(g_log_file.fd, buf, len)) {
+      printf("write log failed\n");
+    }
     pthread_mutex_unlock(&g_log_file.mutex);
   }
 }

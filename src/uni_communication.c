@@ -34,8 +34,8 @@
 #define UART_COMM_TAG                 "uart_comm"
 
 #define DEFAULT_PROTOCOL_BUF_SIZE     (16)
-#define PROTOCOL_BUF_GC_TRIGGER_SIZE  (1024)
-#define PROTOCOL_BUF_SUPPORT_MAX_SIZE (2048)
+#define PROTOCOL_BUF_GC_TRIGGER_SIZE  (2048)
+#define PROTOCOL_BUF_SUPPORT_MAX_SIZE (8192)
 
 //TODO need refactor
 #define WAIT_ACK_TIMEOUT_MSEC         (20)
@@ -288,16 +288,20 @@ static int _write_uart(CommProtocolPacket *packet, CommAttribute *attribute) {
 
   if (NULL != g_comm_protocol_business.on_write) {
     /* sync uart write, we use mutex lock */
-    pthread_mutex_lock(&g_comm_protocol_business.mutex);
-    _unset_acked_sync_flag();
+
+    if (NULL != attribute && attribute->reliable) {
+      _unset_acked_sync_flag();
+    }
 
     do {
+      pthread_mutex_lock(&g_comm_protocol_business.mutex);
       g_comm_protocol_business.on_write((char *)packet, (int)_packet_len_get(packet));
-      LOGD(UART_COMM_TAG, "resend times=%d", resend_times);
+      pthread_mutex_unlock(&g_comm_protocol_business.mutex);
+
+      LOGT(UART_COMM_TAG, "resend times=%d", resend_times);
       ret = _resend_status(attribute, &resend_times);
     } while (RESENDING == ret);
 
-    pthread_mutex_unlock(&g_comm_protocol_business.mutex);
   }
 
   return ret;
