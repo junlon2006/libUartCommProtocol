@@ -38,11 +38,11 @@
 #define PROTOCOL_BUF_SUPPORT_MAX_SIZE (2048)
 
 //TODO need refactor
-#define WAIT_ACK_TIMEOUT_MSEC         (150)
+#define WAIT_ACK_TIMEOUT_MSEC         (20)
 /* make sure ONE_FRAME_BYTE_TIMEOUT_MSEC < WAIT_ACK_TIMEOUT_MSEC
  * otherwise resend cannot work, set
  * WAIT_ACK_TIMEOUT_MSEC = 1.5 * ONE_FRAME_BYTE_TIMEOUT_MSEC */
-#define ONE_FRAME_BYTE_TIMEOUT_MSEC   (100)
+#define ONE_FRAME_BYTE_TIMEOUT_MSEC   (10)
 #define TRY_RESEND_TIMES              (2)
 
 #define uni_min(x, y)                 (x < y ? x : y)
@@ -278,6 +278,10 @@ static int _resend_status(CommAttribute *attribute, int *resend_times) {
   return ret;
 }
 
+/**
+ * RWND always 1, in 921600bps, 512 byte payload can use 80% bandwidth 90KB/s
+ * easy way to make reliable transmission, can meet current requirement
+ */
 static int _write_uart(CommProtocolPacket *packet, CommAttribute *attribute) {
   int ret = 0;
   int resend_times = TRY_RESEND_TIMES;
