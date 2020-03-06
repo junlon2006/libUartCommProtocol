@@ -34,8 +34,8 @@
 #define UART_COMM_TAG                 "uart_comm"
 
 #define DEFAULT_PROTOCOL_BUF_SIZE     (16)
-#define PROTOCOL_BUF_GC_TRIGGER_SIZE  (256)
-#define PROTOCOL_BUF_SUPPORT_MAX_SIZE (1024)
+#define PROTOCOL_BUF_GC_TRIGGER_SIZE  (1024)
+#define PROTOCOL_BUF_SUPPORT_MAX_SIZE (2048)
 
 //TODO need refactor
 #define WAIT_ACK_TIMEOUT_MSEC         (150)
@@ -63,11 +63,11 @@
 /*"uArTcP"|  seq  |  0x0  |  0x0  | crc16 |  0x0  |  0x0  |  NULL  */
 /*-----------------------------------------------------------------*/
 
-/*---------------------------------*/
-/*-------------control-------------*/
-/*| 8 | 7 | 6 | 5 | 4 | 3 | 2 | 1 |*/
-/*|RES|RES|RES|RES|RES|RES|RES|ACK|*/
-/*---------------------------------*/
+/*-----------------------------------*/
+/*--------------control--------------*/
+/*| 8 | 7 | 6 | 5 | 4 | 3 |  2  | 1 |*/
+/*|RES|RES|RES|RES|RES|RES|ACKED|ACK|*/
+/*-----------------------------------*/
 
 typedef unsigned short CommChecksum;
 typedef unsigned char  CommSync;
@@ -75,7 +75,8 @@ typedef unsigned char  CommSequence;
 typedef unsigned char  CommControl;
 
 typedef enum {
-  ACK = 0,
+  ACK = 0,  /* need ack */
+  ACKED = 1,/* ack packet */
 } Control;
 
 typedef enum {
@@ -149,13 +150,27 @@ static void _set_ack(CommProtocolPacket *packet) {
   _bit_set(&packet->control, ACK);
 }
 
+static void _set_acked(CommProtocolPacket *packet) {
+  _bit_set(&packet->control, ACKED);
+}
+
 static uni_bool _is_ack_set(CommControl control) {
   return _is_bit_setted(control, ACK);
 }
 
-static void _control_set(CommProtocolPacket *packet, uni_bool reliable) {
+static uni_bool _is_acked_set(CommControl control) {
+  return _is_bit_setted(control, ACKED);
+}
+
+static void _control_set(CommProtocolPacket *packet, uni_bool reliable, uni_bool is_ack_packet) {
   if (reliable) {
+    LOGD(UART_COMM_TAG, "set ack control");
     _set_ack(packet);
+  }
+
+  if (is_ack_packet) {
+    LOGD(UART_COMM_TAG, "set acked packet");
+    _set_acked(packet);
   }
 }
 
@@ -213,7 +228,8 @@ static void _set_acked_sync_flag() {
 static uni_bool _is_acked_packet(CommProtocolPacket *protocol_packet) {
   return (protocol_packet->cmd == 0 &&
           protocol_packet->sequence == _current_sequence_get() &&
-          protocol_packet->payload_len == 0);
+          protocol_packet->payload_len == 0 &&
+          _is_acked_set(protocol_packet->control));
 }
 
 static int _wait_ack(CommAttribute *attribute) {
@@ -225,8 +241,8 @@ static int _wait_ack(CommAttribute *attribute) {
 
   //TODO stupid timeout, use select perf???
   while (timeout > 0) {
-    timeout -= 5;
-    usleep(5 * 1000);
+    timeout -= 1;
+    usleep(1000);
     if (g_comm_protocol_business.acked) {
       break;
     }
@@ -292,7 +308,7 @@ static void _assmeble_packet(CommProtocolPacket *packet,
                              uni_bool is_ack_packet) {
   _sync_set(packet);
   _sequence_set(packet, seq, is_ack_packet);
-  _control_set(packet, reliable);
+  _control_set(packet, reliable, is_ack_packet);
   _cmd_set(packet, cmd);
   _payload_set(packet, payload, payload_len);
   _payload_len_set(packet, payload_len);
@@ -517,6 +533,7 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
       _reset_protocol_buffer_status(&index, &length, &length_crc16);
       LOGW(UART_COMM_TAG, "nonstandord sync byte, please check");
     }
+
     return;
   }
 
