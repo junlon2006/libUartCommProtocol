@@ -35,16 +35,8 @@
 
 #define LOG_BUFFER_LEN       (1024)
 #define LOG_FILE_NAME        "app.log"
-#define uni_min(x,y)         ({ \
-                                typeof(x) _x = (x); \
-                                typeof(y) _y = (y); \
-                                (void)(&_x == &_y); \
-                                _x < _y ? _x : _y;})
-#define uni_max(x,y)         ({ \
-                                typeof(x) _x = (x); \
-                                typeof(y) _y = (y); \
-                                (void)(&_x == &_y); \
-                                _x > _y ? _x : _y;})
+#define uni_min(x,y)         ((x) > (y) ? (y) : (x))
+#define uni_max(x,y)         ((x) > (y) ? (x) : (y))
 
 typedef struct {
   int             fd;
@@ -75,7 +67,7 @@ static void _get_now_str(char *buf, int len) {
   gettimeofday(&tv, NULL);
   s = tv.tv_sec;
   localtime_r(&s, &local);
-  snprintf(buf, len, "%02d:%02d:%02d.%06"PRId64" ", local.tm_hour,
+  snprintf(buf, len, "%02d:%02d:%02d.%06ld", local.tm_hour,
            local.tm_min, local.tm_sec, (int64_t)tv.tv_usec);
 }
 

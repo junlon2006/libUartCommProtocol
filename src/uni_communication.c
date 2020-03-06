@@ -35,7 +35,7 @@
 
 #define DEFAULT_PROTOCOL_BUF_SIZE     (16)
 #define PROTOCOL_BUF_GC_TRIGGER_SIZE  (256)
-#define PROTOCOL_BUF_SUPPORT_MAX_SIZE (8192)
+#define PROTOCOL_BUF_SUPPORT_MAX_SIZE (1024)
 
 //TODO need refactor
 #define WAIT_ACK_TIMEOUT_MSEC         (150)
@@ -118,7 +118,7 @@ static void _unregister_write_handler() {
 }
 
 static void _sync_set(CommProtocolPacket *packet) {
-  int i;
+  unsigned int i;
   for (i = 0; i < sizeof(g_sync); i++) {
     packet->sync[i] = g_sync[i];
   }
@@ -300,7 +300,7 @@ static void _assmeble_packet(CommProtocolPacket *packet,
   _checksum_calc(packet);
 }
 
-static uni_bool _is_protocol_buffer_overflow(int length) {
+static uni_bool _is_protocol_buffer_overflow(CommPayloadLen length) {
   return length >= PROTOCOL_BUF_SUPPORT_MAX_SIZE;
 }
 
@@ -343,7 +343,7 @@ static CommPacket* _packet_disassemble(CommProtocolPacket *protocol_packet) {
     return NULL;
   }
 
-  packet = uni_malloc(sizeof(CommPacket) + _payload_len_get(protocol_packet));
+  packet = (CommPacket *)uni_malloc(sizeof(CommPacket) + _payload_len_get(protocol_packet));
   if (NULL == packet) {
     LOGE(UART_COMM_TAG, "alloc memory failed");
     return NULL;
@@ -357,10 +357,10 @@ static CommPacket* _packet_disassemble(CommProtocolPacket *protocol_packet) {
   return packet;
 }
 
-static void _enlarge_protocol_buffer(char **orginal, int *orginal_len) {
+static void _enlarge_protocol_buffer(char **orginal, CommPayloadLen *orginal_len) {
   char *p;
-  int new_length = *orginal_len * 2;
-  p = uni_malloc(new_length);
+  CommPayloadLen new_length = *orginal_len * 2;
+  p = (char *)uni_malloc(new_length);
   memcpy(p, *orginal, *orginal_len);
   uni_free(*orginal);
   *orginal = p;
@@ -368,32 +368,31 @@ static void _enlarge_protocol_buffer(char **orginal, int *orginal_len) {
 }
 
 /* small heap memory stays alway, only garbage collection big bins*/
-static void _try_garbage_collection_protocol_buffer(char **buffer, int *length) {
+static void _try_garbage_collection_protocol_buffer(char **buffer, CommPayloadLen *length) {
   if (*length >= PROTOCOL_BUF_GC_TRIGGER_SIZE) {
     uni_free(*buffer);
     *buffer = NULL;
     *length = DEFAULT_PROTOCOL_BUF_SIZE;
-    LOGT(UART_COMM_TAG, "free buffer=%p, len=%d", *buffer, *length);
+    LOGT(UART_COMM_TAG, "free buffer=%p, len=%u", *buffer, *length);
   }
 }
 
-static void _reset_protocol_buffer_status(int *index, int *length, uint16_t *crc) {
+static void _reset_protocol_buffer_status(unsigned int *index, CommPayloadLen *length, uint16_t *crc) {
   *index = 0;
   *length = 0;
   *crc = 0;
 }
 
-static void _protocol_buffer_alloc(char **buffer, int *length, int index) {
+static void _protocol_buffer_alloc(char **buffer, CommPayloadLen *length, unsigned int index) {
   if (NULL == *buffer) {
-    *buffer = uni_malloc(*length);
-    LOGD(UART_COMM_TAG, "init buffer=%p, len=%d", *buffer, *length);
+    *buffer = (char *)uni_malloc(*length);
+    LOGD(UART_COMM_TAG, "init buffer=%p, len=%u", *buffer, *length);
     return;
   }
 
   if (*length <= index) {
     _enlarge_protocol_buffer(buffer, length);
-    LOGD(UART_COMM_TAG, "protocol buffer enlarge. p=%p, new len=%d",
-         *buffer, *length);
+    LOGD(UART_COMM_TAG, "protocol buffer enlarge. p=%p, new len=%u", *buffer, *length);
     return;
   }
 }
@@ -460,7 +459,7 @@ static long _get_clock_time_ms(void) {
   return 0;
 }
 
-static uni_bool _bytes_coming_speed_too_slow(int index) {
+static uni_bool _bytes_coming_speed_too_slow(unsigned int index) {
   static long last_byte_coming_timestamp = 0;
   long now = _get_clock_time_ms();
   uni_bool timeout = false;
@@ -479,16 +478,17 @@ static uni_bool _is_payload_len_crc16_valid(CommPayloadLen length, CommChecksum 
 }
 
 static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
-  static int index = 0;
-  static int length = 0;
+  static unsigned int index = 0;
+  static CommPayloadLen length = 0;
   static uint16_t length_crc16 = 0;
-  static int protocol_buffer_length = DEFAULT_PROTOCOL_BUF_SIZE;
+  static CommPayloadLen protocol_buffer_length = DEFAULT_PROTOCOL_BUF_SIZE;
+
   /* check timestamp to reset status when physical error */
   if (_bytes_coming_speed_too_slow(index)) {
     LOGT(UART_COMM_TAG, "reset protocol buffer automatically[%d]", index);
     _reset_protocol_buffer_status(&index, &length, &length_crc16);
-    _try_garbage_collection_protocol_buffer( \
-        &g_comm_protocol_business.protocol_buffer, &protocol_buffer_length);
+    _try_garbage_collection_protocol_buffer(&g_comm_protocol_business.protocol_buffer,
+                                            &protocol_buffer_length);
   }
 
   /* protect heap use, cannot alloc large than 8K now */
@@ -498,9 +498,10 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
       length--;
       return;
     }
+
     _reset_protocol_buffer_status(&index, &length, &length_crc16);
-    _try_garbage_collection_protocol_buffer( \
-        &g_comm_protocol_business.protocol_buffer, &protocol_buffer_length);
+    _try_garbage_collection_protocol_buffer(&g_comm_protocol_business.protocol_buffer,
+                                            &protocol_buffer_length);
     LOGW(UART_COMM_TAG, "recv invalid frame, payload too long");
     return;
   }
@@ -569,9 +570,9 @@ L_END:
   }
 }
 
-void CommProtocolReceiveUartData(char *buf, int len) {
+void CommProtocolReceiveUartData(unsigned char *buf, int len) {
   for (int i = 0; i < len; i++) {
-    _protocol_buffer_generate_byte_by_byte((unsigned char)buf[i]);
+    _protocol_buffer_generate_byte_by_byte(buf[i]);
   }
 }
 

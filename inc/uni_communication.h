@@ -28,15 +28,15 @@
 extern "C" {
 #endif
 
+#define PACKED              __attribute__ ((packed))
+
+#ifndef uni_bool
 #define uni_bool            int
+#endif
 
 typedef unsigned short      CommCmd;
 typedef unsigned short      CommPayloadLen;
 typedef int                 (*CommWriteHandler)(char *buf, int len);
-
-#define UNI_COMM_TYPE_BASE  (0)
-#define UNI_CUSTOMER_TYPE   (UNI_COMM_TYPE_BASE + 1)
-#define PACKED              __attribute__ ((packed))
 
 typedef struct {
   CommCmd        cmd; /* air condition ctrl cmd such as power_on, power_off */
@@ -65,8 +65,7 @@ typedef void (*CommRecvPacketHandler)(CommPacket *packet);
           then the CommPacket will callback to user
  * @return 0 means success, -1 means failed
  */
-int CommProtocolInit(CommWriteHandler write_handler,
-                     CommRecvPacketHandler recv_handler);
+int CommProtocolInit(CommWriteHandler write_handler, CommRecvPacketHandler recv_handler);
 
 /**
  * @brief communication protocol finalize
@@ -83,8 +82,7 @@ void CommProtocolFinal(void);
  * @param attribute the attribute for this packet, such as packet need ACK
  * @return 0 means success, other means failed
  */
-int CommProtocolPacketAssembleAndSend(CommCmd cmd,
-                                      char *payload,
+int CommProtocolPacketAssembleAndSend(CommCmd cmd, char *payload,
                                       CommPayloadLen payload_len,
                                       CommAttribute *attribute);
 
@@ -94,7 +92,7 @@ int CommProtocolPacketAssembleAndSend(CommCmd cmd,
  * @param len the uart data length
  * @return void
  */
-void CommProtocolReceiveUartData(char *buf, int len);
+void CommProtocolReceiveUartData(unsigned char *buf, int len);
 
 #ifdef __cplusplus
 }
