@@ -530,8 +530,8 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
                          &protocol_buffer_length, index);
 
   /* get frame header sync byte */
-  if (index <= LAYOUT_SYNC_IDX + 5) {
-    if (recv_c == (unsigned char)g_sync[index]) {
+  if (index < LAYOUT_SYNC_IDX + sizeof(g_sync)) {
+    if (recv_c == g_sync[index]) {
       g_comm_protocol_business.protocol_buffer[index++] = recv_c;
     } else {
       _reset_protocol_buffer_status(&index, &length, &length_crc16);
