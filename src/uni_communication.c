@@ -25,6 +25,8 @@
 
 #include "uni_log.h"
 #include "uni_crc16.h"
+#include "uni_interruptable.h"
+
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -105,6 +107,7 @@ typedef struct {
   uni_bool              acked;
   CommSequence          sequence;
   char                  *protocol_buffer;
+  InterruptHandle       interrupt_handle;
 } CommProtocolBusiness;
 
 static unsigned char        g_sync[6] = {'u', 'A', 'r', 'T', 'c', 'P'};
@@ -191,8 +194,7 @@ static CommPayloadLen _payload_len_get(CommProtocolPacket *packet) {
   return packet->payload_len;
 }
 
-static void _payload_set(CommProtocolPacket *packet,
-                         char *buf, CommPayloadLen len) {
+static void _payload_set(CommProtocolPacket *packet, char *buf, CommPayloadLen len) {
   if (NULL != buf && 0 < len) {
     memcpy(packet->payload, buf, len);
   }
@@ -234,19 +236,11 @@ static uni_bool _is_acked_packet(CommProtocolPacket *protocol_packet) {
 
 static int _wait_ack(CommAttribute *attribute) {
   /* acked process */
-  int timeout = WAIT_ACK_TIMEOUT_MSEC;
   if (NULL == attribute || !attribute->reliable) {
     return 0;
   }
 
-  //TODO stupid timeout, use select perf???
-  while (timeout > 0) {
-    timeout -= 1;
-    usleep(1000);
-    if (g_comm_protocol_business.acked) {
-      break;
-    }
-  }
+  InterruptableSleep(g_comm_protocol_business.interrupt_handle, WAIT_ACK_TIMEOUT_MSEC);
 
   if (!g_comm_protocol_business.acked) {
     LOGW(UART_COMM_TAG, "wait uart ack timeout");
@@ -301,7 +295,6 @@ static int _write_uart(CommProtocolPacket *packet, CommAttribute *attribute) {
       LOGT(UART_COMM_TAG, "resend times=%d", resend_times);
       ret = _resend_status(attribute, &resend_times);
     } while (RESENDING == ret);
-
   }
 
   return ret;
@@ -453,6 +446,7 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
   if (_is_acked_packet(protocol_packet)) {
     LOGT(UART_COMM_TAG, "recv ack frame");
     _set_acked_sync_flag();
+    InterruptableBreak(g_comm_protocol_business.interrupt_handle);
     return;
   }
 
@@ -590,8 +584,8 @@ L_END:
     LOGD(UART_COMM_TAG, "assemble new frame, now callback");
     _one_protocol_frame_process(g_comm_protocol_business.protocol_buffer);
     _reset_protocol_buffer_status(&index, &length, &length_crc16);
-    _try_garbage_collection_protocol_buffer( \
-        &g_comm_protocol_business.protocol_buffer, &protocol_buffer_length);
+    _try_garbage_collection_protocol_buffer(&g_comm_protocol_business.protocol_buffer,
+                                            &protocol_buffer_length);
   }
 }
 
@@ -612,6 +606,7 @@ static void _unregister_packet_receive_handler() {
 static void _protocol_business_init() {
   memset(&g_comm_protocol_business, 0, sizeof(g_comm_protocol_business));
   pthread_mutex_init(&g_comm_protocol_business.mutex, NULL);
+  g_comm_protocol_business.interrupt_handle = InterruptCreate();
 }
 
 static void _try_free_protocol_buffer() {
@@ -624,6 +619,7 @@ static void _try_free_protocol_buffer() {
 static void _protocol_business_final() {
   pthread_mutex_destroy(&g_comm_protocol_business.mutex);
   _try_free_protocol_buffer();
+  InterruptDestroy(g_comm_protocol_business.interrupt_handle);
   memset(&g_comm_protocol_business, 0, sizeof(g_comm_protocol_business));
 }
 
