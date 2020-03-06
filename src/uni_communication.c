@@ -368,8 +368,7 @@ static CommPacket* _packet_disassemble(CommProtocolPacket *protocol_packet) {
 
   packet->cmd = protocol_packet->cmd;
   packet->payload_len = _payload_len_get(protocol_packet);
-  memcpy(packet->payload, _payload_get(protocol_packet),
-         _payload_len_get(protocol_packet));
+  memcpy(packet->payload, _payload_get(protocol_packet), _payload_len_get(protocol_packet));
 
   return packet;
 }
