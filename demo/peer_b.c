@@ -13,22 +13,42 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <string.h>
 
-#define TAG "client"
-#define FIFO_UART_MOCK_READ "/tmp/uart-mock-b"
-#define FIFO_UART_MOCK_WRITE "/tmp/uart-mock-a"
+#define TAG                         "client"
+#define FIFO_UART_MOCK_READ         "/tmp/uart-mock-b"
+#define FIFO_UART_MOCK_WRITE        "/tmp/uart-mock-a"
+#define TRANSMISSION_ERROR_PER_BITS 100000
 
 static int fd_R = -1;
 static int fd_T = -1;
 
 static int _uart_write_mock_api(char *buf, int len) {
-  LOGT(TAG, "send data...");
+  static int total_len = 0;
+  static char clone[8192];
+  unsigned int byte_idx;
+  unsigned int bit_idx;
+
+  memcpy(clone, buf, len);
+
   for (int i = 0; i < len; i++) {
-    LOGR(TAG, "0x%0x, ", (unsigned char)buf[i]);
+    LOGR(TAG, "0x%0x, ", (unsigned char)clone[i]);
   }
   LOGR(TAG, "\n");
 
-  if (len != write(fd_T, buf, len)) {
+  total_len += (len << 3);
+  if (total_len >= TRANSMISSION_ERROR_PER_BITS) {
+    total_len = 0;
+
+    LOGW(TAG, "random reverse one bit");
+
+    byte_idx = rand() % len;
+    bit_idx = rand() & 7;
+
+    clone[byte_idx] ^= (1 << bit_idx);
+  }
+
+  if (len != write(fd_T, clone, len)) {
     LOGE(TAG, "write failed");
   }
 
@@ -94,6 +114,7 @@ int main() {
   LOGT(TAG, "peer b start...");
   while (1) {
     CommProtocolPacketAssembleAndSend(1, buf, sizeof(buf), &attr);
+    usleep(1000 * 5);
   }
 
   return 0;
