@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
+#include <assert.h>
 
 #define TAG                          "client"
 #define FIFO_UART_MOCK_READ          "/tmp/uart-mock-a"
@@ -60,9 +61,10 @@ static int _uart_write_mock_api(char *buf, int len) {
 }
 
 static void _recv_comm_packet(CommPacket *packet) {
+  static int seq = 0;
   LOGT(TAG, "recv frame... cmd=%d, len=%d", packet->cmd, packet->payload_len);
   UserData *user_data = (UserData*)packet->payload;
-  LOGW(TAG, "seq=%d", user_data->seq);
+  assert(user_data->seq == ++seq);
 }
 
 static int64_t _get_now_msec(void) {
