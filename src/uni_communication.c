@@ -167,12 +167,10 @@ static uni_bool _is_acked_set(CommControl control) {
 
 static void _control_set(CommProtocolPacket *packet, uni_bool reliable, uni_bool is_ack_packet) {
   if (reliable) {
-    LOGD(UART_COMM_TAG, "set ack control");
     _set_ack(packet);
   }
 
   if (is_ack_packet) {
-    LOGD(UART_COMM_TAG, "set acked packet");
     _set_acked(packet);
   }
 }
@@ -292,7 +290,6 @@ static int _write_uart(CommProtocolPacket *packet, CommAttribute *attribute) {
       g_comm_protocol_business.on_write((char *)packet, (int)_packet_len_get(packet));
       pthread_mutex_unlock(&g_comm_protocol_business.mutex);
 
-      LOGT(UART_COMM_TAG, "resend times=%d", resend_times);
       ret = _resend_status(attribute, &resend_times);
     } while (RESENDING == ret);
   }
@@ -356,7 +353,7 @@ int CommProtocolPacketAssembleAndSend(CommCmd cmd, char *payload,
 static CommPacket* _packet_disassemble(CommProtocolPacket *protocol_packet) {
   CommPacket *packet;
   if (!_checksum_valid(protocol_packet)) {
-    LOGE(UART_COMM_TAG, "checksum failed");
+    LOGD(UART_COMM_TAG, "checksum failed");
     return NULL;
   }
 
@@ -389,7 +386,7 @@ static void _try_garbage_collection_protocol_buffer(char **buffer, CommPayloadLe
     uni_free(*buffer);
     *buffer = NULL;
     *length = DEFAULT_PROTOCOL_BUF_SIZE;
-    LOGT(UART_COMM_TAG, "free buffer=%p, len=%u", *buffer, *length);
+    LOGD(UART_COMM_TAG, "free buffer=%p, len=%u", *buffer, *length);
   }
 }
 
@@ -443,7 +440,7 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
 
   /* ack frame donnot notify application, ignore it now */
   if (_is_acked_packet(protocol_packet)) {
-    LOGT(UART_COMM_TAG, "recv ack frame");
+    LOGD(UART_COMM_TAG, "recv ack frame");
     _set_acked_sync_flag();
     InterruptableBreak(g_comm_protocol_business.interrupt_handle);
     return;
@@ -452,7 +449,7 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
   /* disassemble protocol buffer */
   CommPacket* packet = _packet_disassemble(protocol_packet);
   if (NULL == packet) {
-    LOGW(UART_COMM_TAG, "disassemble packet failed");
+    LOGD(UART_COMM_TAG, "disassemble packet failed");
     return;
   }
 
@@ -502,7 +499,7 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
 
   /* check timestamp to reset status when physical error */
   if (_bytes_coming_speed_too_slow(index)) {
-    LOGT(UART_COMM_TAG, "reset protocol buffer automatically[%d]", index);
+    LOGW(UART_COMM_TAG, "reset protocol buffer automatically[%d]", index);
     _reset_protocol_buffer_status(&index, &length, &length_crc16);
     _try_garbage_collection_protocol_buffer(&g_comm_protocol_business.protocol_buffer,
                                             &protocol_buffer_length);
@@ -532,7 +529,7 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
       g_comm_protocol_business.protocol_buffer[index++] = recv_c;
     } else {
       _reset_protocol_buffer_status(&index, &length, &length_crc16);
-      LOGW(UART_COMM_TAG, "nonstandord sync byte, please check");
+      LOGD(UART_COMM_TAG, "nonstandord sync byte, please check");
     }
 
     return;

@@ -18,7 +18,12 @@
 #define TAG                          "client"
 #define FIFO_UART_MOCK_READ          "/tmp/uart-mock-a"
 #define FIFO_UART_MOCK_WRITE         "/tmp/uart-mock-b"
-#define TRANSMISSION_ERROR_PER_BITS  100000
+#define TRANSMISSION_ERROR_PER_BITS  1000000
+
+typedef struct {
+  int seq;
+  char buf[1024];
+} UserData;
 
 static int fd_R = -1;
 static int fd_T = -1;
@@ -56,7 +61,8 @@ static int _uart_write_mock_api(char *buf, int len) {
 
 static void _recv_comm_packet(CommPacket *packet) {
   LOGT(TAG, "recv frame... cmd=%d, len=%d", packet->cmd, packet->payload_len);
-  return;
+  UserData *user_data = (UserData*)packet->payload;
+  LOGW(TAG, "seq=%d", user_data->seq);
 }
 
 static int64_t _get_now_msec(void) {
@@ -103,7 +109,8 @@ int main() {
 
   CommProtocolInit(_uart_write_mock_api, _recv_comm_packet);
 
-  char buf[512];
+  UserData user_data = {0};
+
   CommAttribute attr;
   attr.reliable = 1;
 
@@ -112,7 +119,8 @@ int main() {
 
   LOGT(TAG, "peer a start...");
   while (1) {
-    CommProtocolPacketAssembleAndSend(1, buf, sizeof(buf), &attr);
+    user_data.seq++;
+    CommProtocolPacketAssembleAndSend(1, (char *)&user_data, sizeof(user_data), &attr);
     usleep(1000 * 5);
   }
 
