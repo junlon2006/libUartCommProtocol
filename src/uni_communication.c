@@ -65,11 +65,11 @@
 /*"uArTcP"|  seq  |  0x0  |  0x0  | crc16 |  0x0  |  0x0  |  NULL  */
 /*-----------------------------------------------------------------*/
 
-/*-----------------------------------*/
-/*--------------control--------------*/
-/*| 8 | 7 | 6 | 5 | 4 | 3 |  2  | 1 |*/
-/*|RES|RES|RES|RES|RES|RES|ACKED|ACK|*/
-/*-----------------------------------*/
+/*------------------------------------*/
+/*--------------control---------------*/
+/*| 8 | 7 | 6 | 5 | 4 | 3  |  2  | 1 |*/
+/*|RES|RES|RES|RES|RES|NACK|ACKED|ACK|*/
+/*------------------------------------*/
 
 typedef unsigned short CommChecksum;
 typedef unsigned char  CommSync;
@@ -77,8 +77,9 @@ typedef unsigned char  CommSequence;
 typedef unsigned char  CommControl;
 
 typedef enum {
-  ACK = 0,  /* need ack */
-  ACKED = 1,/* ack packet */
+  ACK   = 0,  /* need ack */
+  ACKED = 1,  /* ack packet */
+  NACK  = 2,  /* nack packet */
 } Control;
 
 typedef enum {
@@ -129,8 +130,8 @@ static void _sync_set(CommProtocolPacket *packet) {
 }
 
 static void _sequence_set(CommProtocolPacket *packet, CommSequence seq,
-                          uni_bool is_ack_packet) {
-  if (is_ack_packet) {
+                          uni_bool is_ack_packet, uni_bool is_nack_packet) {
+  if (is_ack_packet || is_nack_packet) {
     packet->sequence = seq;
   } else {
     packet->sequence = g_comm_protocol_business.sequence++;
@@ -157,6 +158,10 @@ static void _set_acked(CommProtocolPacket *packet) {
   _bit_set(&packet->control, ACKED);
 }
 
+static void _set_nack(CommProtocolPacket *packet) {
+  _bit_set(&packet->control, NACK);
+}
+
 static uni_bool _is_ack_set(CommControl control) {
   return _is_bit_setted(control, ACK);
 }
@@ -165,13 +170,22 @@ static uni_bool _is_acked_set(CommControl control) {
   return _is_bit_setted(control, ACKED);
 }
 
-static void _control_set(CommProtocolPacket *packet, uni_bool reliable, uni_bool is_ack_packet) {
+static uni_bool _is_nacked_set(CommControl control) {
+  return _is_bit_setted(control, NACK);
+}
+
+static void _control_set(CommProtocolPacket *packet, uni_bool reliable,
+                         uni_bool is_ack_packet, uni_bool is_nack_packet) {
   if (reliable) {
     _set_ack(packet);
   }
 
   if (is_ack_packet) {
     _set_acked(packet);
+  }
+
+  if (is_nack_packet) {
+    _set_nack(packet);
   }
 }
 
@@ -232,6 +246,12 @@ static uni_bool _is_acked_packet(CommProtocolPacket *protocol_packet) {
           _is_acked_set(protocol_packet->control));
 }
 
+static uni_bool _is_nacked_packet(CommProtocolPacket *protocol_packet) {
+  return (protocol_packet->cmd == 0 &&
+          protocol_packet->payload_len == 0 &&
+          _is_nacked_set(protocol_packet->control));
+}
+
 static int _wait_ack(CommAttribute *attribute) {
   /* acked process */
   if (NULL == attribute || !attribute->reliable) {
@@ -279,13 +299,12 @@ static int _write_uart(CommProtocolPacket *packet, CommAttribute *attribute) {
   int resend_times = TRY_RESEND_TIMES;
 
   if (NULL != g_comm_protocol_business.on_write) {
-    /* sync uart write, we use mutex lock */
-
     if (NULL != attribute && attribute->reliable) {
       _unset_acked_sync_flag();
     }
 
     do {
+      /* sync uart write, we use mutex lock */
       pthread_mutex_lock(&g_comm_protocol_business.mutex);
       g_comm_protocol_business.on_write((char *)packet, (int)_packet_len_get(packet));
       pthread_mutex_unlock(&g_comm_protocol_business.mutex);
@@ -303,10 +322,11 @@ static void _assmeble_packet(CommProtocolPacket *packet,
                              CommPayloadLen payload_len,
                              uni_bool reliable,
                              CommSequence seq,
-                             uni_bool is_ack_packet) {
+                             uni_bool is_ack_packet,
+                             uni_bool is_nack_packet) {
   _sync_set(packet);
-  _sequence_set(packet, seq, is_ack_packet);
-  _control_set(packet, reliable, is_ack_packet);
+  _sequence_set(packet, seq, is_ack_packet, is_nack_packet);
+  _control_set(packet, reliable, is_ack_packet, is_nack_packet);
   _cmd_set(packet, cmd);
   _payload_set(packet, payload, payload_len);
   _payload_len_set(packet, payload_len);
@@ -323,7 +343,8 @@ static int _assemble_and_send_frame(CommCmd cmd,
                                     CommPayloadLen payload_len,
                                     CommAttribute *attribute,
                                     CommSequence seq,
-                                    uni_bool is_ack_packet) {
+                                    uni_bool is_ack_packet,
+                                    uni_bool is_nack_packet) {
   int ret = 0;
   if (_is_protocol_buffer_overflow(sizeof(CommProtocolPacket) +
                                    payload_len)) {
@@ -337,7 +358,8 @@ static int _assemble_and_send_frame(CommCmd cmd,
 
   _assmeble_packet(packet, cmd, payload, payload_len,
                    attribute && attribute->reliable,
-                   seq, is_ack_packet);
+                   seq, is_ack_packet, is_nack_packet);
+
    ret = _write_uart(packet, attribute);
   _packet_free(packet);
 
@@ -347,7 +369,7 @@ static int _assemble_and_send_frame(CommCmd cmd,
 int CommProtocolPacketAssembleAndSend(CommCmd cmd, char *payload,
                                       CommPayloadLen payload_len,
                                       CommAttribute *attribute) {
-  return _assemble_and_send_frame(cmd, payload, payload_len, attribute, 0, false);
+  return _assemble_and_send_frame(cmd, payload, payload_len, attribute, 0, false, false);
 }
 
 static CommPacket* _packet_disassemble(CommProtocolPacket *protocol_packet) {
@@ -410,8 +432,13 @@ static void _protocol_buffer_alloc(char **buffer, CommPayloadLen *length, unsign
   }
 }
 
+static void _send_nack_frame(CommSequence seq) {
+  _assemble_and_send_frame(0, NULL, 0, NULL, seq, false, true);
+  LOGW(UART_COMM_TAG, "send nack seq=%d", seq);
+}
+
 static void _send_ack_frame(CommSequence seq) {
-  _assemble_and_send_frame(0, NULL, 0, NULL, seq, true);
+  _assemble_and_send_frame(0, NULL, 0, NULL, seq, true, false);
   LOGD(UART_COMM_TAG, "send ack seq=%d", seq);
 }
 
@@ -446,9 +473,17 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
     return;
   }
 
+  /* nack frame. resend immediately, donnot notify application */
+  if (_is_nacked_packet(protocol_packet)) {
+    LOGW(UART_COMM_TAG, "recv nack frame");
+    InterruptableBreak(g_comm_protocol_business.interrupt_handle);
+    return;
+  }
+
   /* disassemble protocol buffer */
   CommPacket* packet = _packet_disassemble(protocol_packet);
   if (NULL == packet) {
+    _send_nack_frame(0);
     LOGD(UART_COMM_TAG, "disassemble packet failed");
     return;
   }
@@ -558,6 +593,7 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
     if (!_is_payload_len_crc16_valid(length, length_crc16)) {
       LOGE(UART_COMM_TAG, "length crc check failed");
       _reset_protocol_buffer_status(&index, &length, &length_crc16);
+      _send_nack_frame(0);
       return;
     }
   }

@@ -20,9 +20,8 @@
 #define TAG                         "peer-b"
 #define FIFO_UART_MOCK_READ         "/tmp/uart-mock-b"
 #define FIFO_UART_MOCK_WRITE        "/tmp/uart-mock-a"
-#define TRANSMISSION_ERROR_PER_BITS (10000000)
+#define TRANSMISSION_ERROR_PER_BITS (1000000)
 #define BAUD_RATE                   (921600)
-#define PROTOCOL_HEADER_LEN         (16)
 
 typedef struct {
   int  seq;
@@ -64,7 +63,7 @@ static int _uart_write_mock_api(char *buf, int len) {
     LOGE(TAG, "write failed");
   }
 
-  sleep_msec = (sizeof(UserData) + PROTOCOL_HEADER_LEN) * 8 * 1000 / BAUD_RATE;
+  sleep_msec = len * 8 * 1000 / BAUD_RATE;
   sleep_msec += 1;
   InterruptableSleep(interrupt_handle, sleep_msec);
 
