@@ -40,7 +40,7 @@
 #define PROTOCOL_BUF_SUPPORT_MAX_SIZE (8192)
 
 //TODO need refactor
-#define WAIT_ACK_TIMEOUT_MSEC         (20)
+#define WAIT_ACK_TIMEOUT_MSEC         (25)
 /* make sure ONE_FRAME_BYTE_TIMEOUT_MSEC < WAIT_ACK_TIMEOUT_MSEC
  * otherwise resend cannot work, set
  * WAIT_ACK_TIMEOUT_MSEC = 1.5 * ONE_FRAME_BYTE_TIMEOUT_MSEC */
@@ -241,7 +241,7 @@ static int _wait_ack(CommAttribute *attribute) {
   InterruptableSleep(g_comm_protocol_business.interrupt_handle, WAIT_ACK_TIMEOUT_MSEC);
 
   if (!g_comm_protocol_business.acked) {
-    LOGW(UART_COMM_TAG, "wait uart ack timeout");
+    LOGT(UART_COMM_TAG, "wait uart ack timeout");
   }
 
   return g_comm_protocol_business.acked ? 0 : E_UNI_COMM_PAYLOAD_ACK_TIMEOUT;

@@ -1,5 +1,6 @@
 #include "uni_communication.h"
 #include "uni_log.h"
+#include "uni_interruptable.h"
 
 #include <unistd.h>
 #include <stdio.h>
@@ -16,14 +17,16 @@
 #include <string.h>
 #include <assert.h>
 
-#define TAG                          "client"
-#define FIFO_UART_MOCK_READ          "/tmp/uart-mock-a"
-#define FIFO_UART_MOCK_WRITE         "/tmp/uart-mock-b"
-#define TRANSMISSION_ERROR_PER_BITS  1000000
+#define TAG                         "peer-a"
+#define FIFO_UART_MOCK_READ         "/tmp/uart-mock-a"
+#define FIFO_UART_MOCK_WRITE        "/tmp/uart-mock-b"
+#define TRANSMISSION_ERROR_PER_BITS (100000)
+#define BAUD_RATE                   (921600)
+#define PROTOCOL_HEADER_LEN         (16)
 
 typedef struct {
-  int seq;
-  char buf[1024];
+  int  seq;
+  char buf[512];
 } UserData;
 
 static int fd_R = -1;
@@ -45,7 +48,7 @@ static int _uart_write_mock_api(char *buf, int len) {
   total_len += (len << 3);
   if (total_len >= TRANSMISSION_ERROR_PER_BITS) {
     total_len = 0;
-    LOGW(TAG, "random reverse one bit");
+    LOGT(TAG, "random reverse one bit");
 
     byte_idx = rand() % len;
     bit_idx = rand() & 7;
@@ -60,39 +63,42 @@ static int _uart_write_mock_api(char *buf, int len) {
   return len;
 }
 
-static void _recv_comm_packet(CommPacket *packet) {
-  static int seq = 0;
-  LOGT(TAG, "recv frame... cmd=%d, len=%d", packet->cmd, packet->payload_len);
-  UserData *user_data = (UserData*)packet->payload;
-  assert(user_data->seq == ++seq);
-}
-
 static int64_t _get_now_msec(void) {
   struct timeval t1;
   gettimeofday(&t1, NULL);
-  return ((int64_t)t1.tv_sec * 1000 + t1.tv_usec/1000);
+  return ((int64_t)t1.tv_sec * 1000 + t1.tv_usec / 1000);
+}
+
+static void _recv_comm_packet(CommPacket *packet) {
+  static int64_t start_time = _get_now_msec();
+  static int64_t start = _get_now_msec();
+  int64_t now;
+  float avg_speed;
+  static int64_t total_len = 0;
+  static int seq = 0;
+
+  LOGT(TAG, "recv frame... cmd=%d, len=%d", packet->cmd, packet->payload_len);
+
+  UserData *user_data = (UserData*)packet->payload;
+  assert(user_data->seq == ++seq);
+  total_len += packet->payload_len;
+  now = _get_now_msec();
+  if (now - start > 1000) {
+    avg_speed = total_len / (float)(now - start_time) * 1000 / 1024;
+    LOGW(TAG, "[%d:ER%d] total=%dKB, cost=%ds, speed=%.2fKB/s, BW RATIO=%.2f%%",
+         BAUD_RATE, TRANSMISSION_ERROR_PER_BITS, total_len >> 10,
+         (now - start_time) / 1000, avg_speed, avg_speed / (BAUD_RATE >> 13) * 100);
+    start = now;
+  }
 }
 
 static void* __recv_task(void *args) {
   int read_len;
   unsigned char buf[1024];
 
-  int64_t start_time = _get_now_msec();
-  int64_t start, now;
-  int64_t total_len = 0;
-  start = start_time;
-
   while (1) {
     read_len = read(fd_R, buf, sizeof(buf));
-    total_len += read_len;
     CommProtocolReceiveUartData(buf, read_len);
-
-    now = _get_now_msec();
-    if (now - start >= 1000) {
-      LOGW(TAG, "total_len=%dKB, cost=%ds, avg_speed=%dKB/s", total_len / 1024,
-           (now - start_time) / 1000, total_len / (now - start_time) * 1000 / 1024);
-      start = now;
-    }
   }
 
   return NULL;
@@ -100,6 +106,8 @@ static void* __recv_task(void *args) {
 
 int main() {
   LogLevelSet(N_LOG_WARN);
+
+  InterruptHandle interrupt_handle = InterruptCreate();
 
   mkfifo(FIFO_UART_MOCK_READ, 0644);
   mkfifo(FIFO_UART_MOCK_WRITE, 0644);
@@ -120,10 +128,14 @@ int main() {
   pthread_create(&pid, NULL, __recv_task, NULL);
 
   LOGT(TAG, "peer a start...");
+
+  int sleep_msec = (sizeof(UserData) + PROTOCOL_HEADER_LEN) * 8 * 1000 / BAUD_RATE;
+  sleep_msec += 1;
+
   while (1) {
     user_data.seq++;
     CommProtocolPacketAssembleAndSend(1, (char *)&user_data, sizeof(user_data), &attr);
-    usleep(1000 * 5);
+    InterruptableSleep(interrupt_handle, sleep_msec);
   }
 
   return 0;
