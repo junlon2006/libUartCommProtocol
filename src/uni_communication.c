@@ -476,6 +476,7 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
   /* nack frame. resend immediately, donnot notify application */
   if (_is_nacked_packet(protocol_packet)) {
     LOGW(UART_COMM_TAG, "recv nack frame");
+    /* use select can cover payload_len_crc16 error case, sem sometimes not */
     InterruptableBreak(g_comm_protocol_business.interrupt_handle);
     return;
   }
@@ -512,7 +513,8 @@ static uni_bool _bytes_coming_speed_too_slow(unsigned int index) {
   static long last_byte_coming_timestamp = 0;
   long now = _get_clock_time_ms();
   uni_bool timeout = false;
-  if (now - last_byte_coming_timestamp > ONE_FRAME_BYTE_TIMEOUT_MSEC && /* lost one check when overflow */
+  /* lost one check when overflow, but it is ok */
+  if (now - last_byte_coming_timestamp > ONE_FRAME_BYTE_TIMEOUT_MSEC &&
       LAYOUT_SYNC_IDX != index) {
     timeout = true;
     LOGW(UART_COMM_TAG, "[%u->%u]", last_byte_coming_timestamp, now);
