@@ -241,7 +241,6 @@ static void _set_acked_sync_flag() {
 
 static uni_bool _is_acked_packet(CommProtocolPacket *protocol_packet) {
   return (protocol_packet->cmd == 0 &&
-          protocol_packet->sequence == _current_sequence_get() &&
           protocol_packet->payload_len == 0 &&
           _is_acked_set(protocol_packet->control));
 }
@@ -467,9 +466,13 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
 
   /* ack frame donnot notify application, ignore it now */
   if (_is_acked_packet(protocol_packet)) {
-    LOGD(UART_COMM_TAG, "recv ack frame");
-    _set_acked_sync_flag();
-    InterruptableBreak(g_comm_protocol_business.interrupt_handle);
+    if (protocol_packet->sequence == _current_sequence_get()) {
+      LOGD(UART_COMM_TAG, "recv ack frame");
+      _set_acked_sync_flag();
+      InterruptableBreak(g_comm_protocol_business.interrupt_handle);
+    } else {
+      LOGD(UART_COMM_TAG, "recv outdated ack frame");
+    }
     return;
   }
 
