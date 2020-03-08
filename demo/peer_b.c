@@ -20,7 +20,7 @@
 #define TAG                         "peer-b"
 #define FIFO_UART_MOCK_READ         "/tmp/uart-mock-b"
 #define FIFO_UART_MOCK_WRITE        "/tmp/uart-mock-a"
-#define TRANSMISSION_ERROR_PER_BITS (1000000)
+#define TRANSMISSION_ERROR_PER_BITS (10000000)
 #define BAUD_RATE                   (921600)
 #define PROTOCOL_HEADER_LEN         (16)
 
@@ -32,11 +32,14 @@ typedef struct {
 static int fd_R = -1;
 static int fd_T = -1;
 
+static InterruptHandle interrupt_handle;
+
 static int _uart_write_mock_api(char *buf, int len) {
   static int total_len = 0;
   static char clone[8192];
   unsigned int byte_idx;
   unsigned int bit_idx;
+  int sleep_msec;
 
   memcpy(clone, buf, len);
 
@@ -60,6 +63,10 @@ static int _uart_write_mock_api(char *buf, int len) {
   if (len != write(fd_T, clone, len)) {
     LOGE(TAG, "write failed");
   }
+
+  sleep_msec = (sizeof(UserData) + PROTOCOL_HEADER_LEN) * 8 * 1000 / BAUD_RATE;
+  sleep_msec += 1;
+  InterruptableSleep(interrupt_handle, sleep_msec);
 
   return len;
 }
@@ -108,7 +115,7 @@ static void* __recv_task(void *args) {
 int main() {
   LogLevelSet(N_LOG_WARN);
 
-  InterruptHandle interrupt_handle = InterruptCreate();
+  interrupt_handle = InterruptCreate();
 
   mkfifo(FIFO_UART_MOCK_READ, 0644);
   mkfifo(FIFO_UART_MOCK_WRITE, 0644);
@@ -130,13 +137,9 @@ int main() {
 
   LOGT(TAG, "peer b start...");
 
-  int sleep_msec = (sizeof(UserData) + PROTOCOL_HEADER_LEN) * 8 * 1000 / BAUD_RATE;
-  sleep_msec += 1;
-
   while (1) {
     user_data.seq++;
     CommProtocolPacketAssembleAndSend(1, (char *)&user_data, sizeof(user_data), &attr);
-    InterruptableSleep(interrupt_handle, sleep_msec);
   }
 
   return 0;

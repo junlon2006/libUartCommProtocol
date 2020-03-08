@@ -40,7 +40,7 @@
 #define PROTOCOL_BUF_SUPPORT_MAX_SIZE (8192)
 
 //TODO need refactor
-#define WAIT_ACK_TIMEOUT_MSEC         (25)
+#define WAIT_ACK_TIMEOUT_MSEC         (20)
 /* make sure ONE_FRAME_BYTE_TIMEOUT_MSEC < WAIT_ACK_TIMEOUT_MSEC
  * otherwise resend cannot work, set
  * WAIT_ACK_TIMEOUT_MSEC = 1.5 * ONE_FRAME_BYTE_TIMEOUT_MSEC */
