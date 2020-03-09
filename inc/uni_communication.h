@@ -18,7 +18,7 @@
  *
  * Description : uni_communication.h
  * Author      : junlon2006@163.com
- * Date        : 2019.12.27
+ * Date        : 2020.03.04
  *
  **************************************************************************/
 #ifndef UTILS_UART_INC_UNI_COMMUNICATION_H_
