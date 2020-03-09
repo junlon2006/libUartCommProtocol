@@ -79,7 +79,7 @@ static int64_t _get_now_msec(void) {
 static void _recv_comm_packet(CommPacket *packet) {
   static int64_t start_time = _get_now_msec();
   static int64_t start = _get_now_msec();
-  int64_t now;
+  int64_t now, cost;
   float avg_speed;
   static int64_t total_len = 0;
   static int seq = 0;
@@ -91,10 +91,17 @@ static void _recv_comm_packet(CommPacket *packet) {
   total_len += packet->payload_len;
   now = _get_now_msec();
   if (now - start > 1000) {
+    cost = (now - start_time) / 1000;
     avg_speed = total_len / (float)(now - start_time) * 1000 / 1024;
-    LOGW(TAG, "[%d:ER%d] total=%dKB, cost=%ds, speed=%.2fKB/s, BW RATIO=%.2f%%",
-         BAUD_RATE, TRANSMISSION_ERROR_PER_BITS, total_len >> 10,
-         (now - start_time) / 1000, avg_speed, avg_speed / (BAUD_RATE >> 13) * 100);
+    LOGW(TAG, "[%d:ER%d] total=%dKB, cost=%d-%02d:%02d:%02d, speed=%.2fKB/s, BW RATIO=%.2f%%",
+         BAUD_RATE,
+         TRANSMISSION_ERROR_PER_BITS,
+         total_len >> 10,
+         cost / (3600 * 24),
+         cost % (3600 * 24) / 3600,
+         cost % (3600 * 24) % 3600 / 60,
+         cost % (3600 * 24) % 3600 % 60,
+         avg_speed, avg_speed / (BAUD_RATE >> 13) * 100);
     start = now;
   }
 }
