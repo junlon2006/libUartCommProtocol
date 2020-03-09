@@ -13,6 +13,7 @@ int CommProtocolPacketAssembleAndSend(CommCmd cmd, char *payload,
                                       CommAttribute *attribute);
 ```
 ```
+Linux x86 benchmark demo, ubuntu 16.04 recommend
 ./build.sh
 ./peera
 ./peerb
