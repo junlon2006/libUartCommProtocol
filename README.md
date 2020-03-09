@@ -20,4 +20,3 @@ Linux x86 benchmark demo, ubuntu 16.04 recommend
 ```
 ![image](https://github.com/junlon2006/libUartCommProtocol/blob/master/benchmark/images/logger.png)  
 
-![image](https://github.com/junlon2006/libUartCommProtocol/blob/master/benchmark/images/htop.png)  
