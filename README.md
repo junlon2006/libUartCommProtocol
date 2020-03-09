@@ -1,6 +1,6 @@
 # libUartCommProtocol
 UART Communication Protocol, support like TCP/UDP feature  
-RWND = 1, easy way to make reliable transmission, support NACK only  
+RWND = 1, 【low memory usage】easy way to make reliable transmission, support ACK/NACK only  
 ```
 
 1：TCP like: uart in 921600bps mode [symbol error rate：1bit/1000000bit, every 122KB one bit error, payload_len 512 byte] can reach 64KB/s reliable transmission【full-duplex】. RWND always 1, total memory usage about 1KB.
