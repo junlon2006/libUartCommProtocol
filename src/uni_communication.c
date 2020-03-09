@@ -39,7 +39,7 @@
 #define PROTOCOL_BUF_GC_TRIGGER_SIZE  (2048)
 #define PROTOCOL_BUF_SUPPORT_MAX_SIZE (8192)
 
-//TODO need refactor
+//TODO need refactor, calculate by baud rate
 #define WAIT_ACK_TIMEOUT_MSEC         (20)
 /* make sure ONE_FRAME_BYTE_TIMEOUT_MSEC < WAIT_ACK_TIMEOUT_MSEC
  * otherwise resend cannot work, set
@@ -303,7 +303,9 @@ static int _write_uart(CommProtocolPacket *packet, CommAttribute *attribute) {
     }
 
     do {
-      /* sync uart write, we use mutex lock */
+      //TODO
+      /* sync uart write, we use mutex lock, but in high concurrency, mutex perf bad,
+         can sleep 0 when unlock, CAS is better, use CAS insteads */
       pthread_mutex_lock(&g_comm_protocol_business.mutex);
       g_comm_protocol_business.on_write((char *)packet, (int)_packet_len_get(packet));
       pthread_mutex_unlock(&g_comm_protocol_business.mutex);
