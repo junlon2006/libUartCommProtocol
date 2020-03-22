@@ -104,7 +104,8 @@ typedef struct {
 typedef struct {
   CommWriteHandler      on_write;
   CommRecvPacketHandler on_recv_frame;
-  pthread_mutex_t       mutex;
+  pthread_mutex_t       write_sync_lock;    /* avoid uart device write concurrency*/
+  pthread_mutex_t       app_send_sync_lock; /* avoid app send concurrency, out of sequence */
   uni_bool              acked;
   CommSequence          sequence;
   char                  *protocol_buffer;
@@ -315,10 +316,10 @@ static int _write_uart(CommProtocolPacket *packet, CommAttribute *attribute) {
       /* sync uart write, we use mutex lock,
          but in high concurrency, mutex perf bad,
          can sleep 0 when unlock, CAS is better, use CAS insteads */
-      pthread_mutex_lock(&g_comm_protocol_business.mutex);
+      pthread_mutex_lock(&g_comm_protocol_business.write_sync_lock);
       g_comm_protocol_business.on_write((char *)packet,
                                         (int)_packet_len_get(packet));
-      pthread_mutex_unlock(&g_comm_protocol_business.mutex);
+      pthread_mutex_unlock(&g_comm_protocol_business.write_sync_lock);
 
       ret = _resend_status(attribute, &resend_times);
     } while (RESENDING == ret);
@@ -380,8 +381,12 @@ static int _assemble_and_send_frame(CommCmd cmd,
 int CommProtocolPacketAssembleAndSend(CommCmd cmd, char *payload,
                                       CommPayloadLen payload_len,
                                       CommAttribute *attribute) {
-  return _assemble_and_send_frame(cmd, payload, payload_len,
+  int ret;
+  pthread_mutex_lock(&g_comm_protocol_business.app_send_sync_lock);
+  ret = _assemble_and_send_frame(cmd, payload, payload_len,
                                   attribute, 0, false, false);
+  pthread_mutex_unlock(&g_comm_protocol_business.app_send_sync_lock);
+  return ret;
 }
 
 static CommPacket* _packet_disassemble(CommProtocolPacket *protocol_packet) {
@@ -667,7 +672,8 @@ static void _unregister_packet_receive_handler() {
 
 static void _protocol_business_init() {
   memset(&g_comm_protocol_business, 0, sizeof(g_comm_protocol_business));
-  pthread_mutex_init(&g_comm_protocol_business.mutex, NULL);
+  pthread_mutex_init(&g_comm_protocol_business.write_sync_lock, NULL);
+  pthread_mutex_init(&g_comm_protocol_business.app_send_sync_lock, NULL);
   g_comm_protocol_business.interrupt_handle = InterruptCreate();
 }
 
@@ -679,7 +685,8 @@ static void _try_free_protocol_buffer() {
 }
 
 static void _protocol_business_final() {
-  pthread_mutex_destroy(&g_comm_protocol_business.mutex);
+  pthread_mutex_destroy(&g_comm_protocol_business.write_sync_lock);
+  pthread_mutex_destroy(&g_comm_protocol_business.app_send_sync_lock);
   _try_free_protocol_buffer();
   InterruptDestroy(g_comm_protocol_business.interrupt_handle);
   memset(&g_comm_protocol_business, 0, sizeof(g_comm_protocol_business));
