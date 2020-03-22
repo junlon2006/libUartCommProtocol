@@ -36,7 +36,7 @@
 #define UART_COMM_TAG                 "uart_comm"
 
 #define DEFAULT_PROTOCOL_BUF_SIZE     (16)
-#define PROTOCOL_BUF_GC_TRIGGER_SIZE  (2048)
+#define PROTOCOL_BUF_GC_TRIGGER_SIZE  (2048 + 32) /* cover protocol header */
 #define PROTOCOL_BUF_SUPPORT_MAX_SIZE (8192)
 
 //TODO need refactor, calculate by baud rate
