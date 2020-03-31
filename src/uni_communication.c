@@ -40,12 +40,12 @@
 #define PROTOCOL_BUF_SUPPORT_MAX_SIZE (8192)
 
 //TODO need refactor, calculate by baud rate
-#define WAIT_ACK_TIMEOUT_MSEC         (20)
+#define WAIT_ACK_TIMEOUT_MSEC         (200)
 /* make sure ONE_FRAME_BYTE_TIMEOUT_MSEC < WAIT_ACK_TIMEOUT_MSEC
  * otherwise resend cannot work, set
  * WAIT_ACK_TIMEOUT_MSEC = 1.5 * ONE_FRAME_BYTE_TIMEOUT_MSEC */
-#define ONE_FRAME_BYTE_TIMEOUT_MSEC   (10)
-#define TRY_RESEND_TIMES              (2)
+#define ONE_FRAME_BYTE_TIMEOUT_MSEC   (2000)
+#define TRY_RESEND_TIMES              (5)
 
 #define uni_min(x, y)                 (x < y ? x : y)
 #define uni_max(x, y)                 (x > y ? x : y)
@@ -372,7 +372,7 @@ static int _assemble_and_send_frame(CommCmd cmd,
                    attribute && attribute->reliable,
                    seq, is_ack_packet, is_nack_packet);
 
-   ret = _write_uart(packet, attribute);
+  ret = _write_uart(packet, attribute);
   _packet_free(packet);
 
   return ret;
@@ -506,17 +506,22 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
 
   /* nack frame. resend immediately, donnot notify application */
   if (_is_nacked_packet(protocol_packet)) {
-    LOGW(UART_COMM_TAG, "recv nack frame");
     /* use select can cover payload_len_crc16 error case, sem sometimes not */
-    InterruptableBreak(g_comm_protocol_business.interrupt_handle);
+    if (protocol_packet->sequence == _current_sequence_get()) {
+      LOGW(UART_COMM_TAG, "recv useful nack frame, seq=%d", protocol_packet->sequence);
+      InterruptableBreak(g_comm_protocol_business.interrupt_handle);
+    } else {
+      LOGW(UART_COMM_TAG, "recv outdated nack frame, seq=%d, cur_seq=%d",
+           protocol_packet->sequence, _current_sequence_get());
+    }
     return;
   }
 
   /* disassemble protocol buffer */
   CommPacket* packet = _packet_disassemble(protocol_packet);
   if (NULL == packet) {
-    _send_nack_frame(0);
-    LOGD(UART_COMM_TAG, "disassemble packet failed");
+    _send_nack_frame(protocol_packet->sequence);
+    LOGW(UART_COMM_TAG, "disassemble packet failed");
     return;
   }
 
@@ -566,6 +571,7 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
   static CommPayloadLen length = 0;
   static uint16_t length_crc16 = 0;
   static CommPayloadLen protocol_buffer_length = DEFAULT_PROTOCOL_BUF_SIZE;
+  CommProtocolPacket *packet;
 
   /* check timestamp to reset status when physical error */
   if (_bytes_coming_speed_too_slow(index)) {
@@ -628,7 +634,8 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
     if (!_is_payload_len_crc16_valid(length, length_crc16)) {
       LOGE(UART_COMM_TAG, "length crc check failed");
       _reset_protocol_buffer_status(&index, &length, &length_crc16);
-      _send_nack_frame(0);
+      packet = (CommProtocolPacket *)g_comm_protocol_business.protocol_buffer;
+      _send_nack_frame(packet->sequence);
       return;
     }
   }
