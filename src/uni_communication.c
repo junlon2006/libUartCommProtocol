@@ -481,7 +481,9 @@ static uni_bool _is_duplicate_frame(CommProtocolPacket *protocol_packet) {
   uni_bool duplicate;
   duplicate = (last_recv_packet_seq == (int)protocol_packet->sequence);
   last_recv_packet_seq = protocol_packet->sequence;
-  LOGD(UART_COMM_TAG, "duplicate=%d", duplicate);
+  LOGD(UART_COMM_TAG, "duplicate=%d, seq=%d, cmd=%d, ctrl=%d, len=%d",
+       duplicate, protocol_packet->sequence, protocol_packet->cmd,
+       protocol_packet->control, protocol_packet->payload_len);
   return duplicate;
 }
 
