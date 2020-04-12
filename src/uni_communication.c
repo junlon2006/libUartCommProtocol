@@ -126,7 +126,6 @@ static void _unregister_write_handler() {
 
 static void _set_current_acked_seq(CommSequence seq) {
   g_comm_protocol_business.current_acked_seq = seq;
-  LOGW(UART_COMM_TAG, "acked=%d", seq);
 }
 
 static CommSequence _get_current_acked_seq() {
