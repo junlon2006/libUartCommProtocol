@@ -108,6 +108,7 @@ typedef struct {
   pthread_mutex_t       app_send_sync_lock; /* avoid app send concurrency, out of sequence */
   uni_bool              acked;
   CommSequence          sequence;
+  CommSequence          current_acked_seq;  /* current received sequence */
   char                  *protocol_buffer;
   InterruptHandle       interrupt_handle;
 } CommProtocolBusiness;
@@ -121,6 +122,15 @@ static void _register_write_handler(CommWriteHandler handler) {
 
 static void _unregister_write_handler() {
   g_comm_protocol_business.on_write = NULL;
+}
+
+static void _set_current_acked_seq(CommSequence seq) {
+  g_comm_protocol_business.current_acked_seq = seq;
+  LOGW(UART_COMM_TAG, "acked=%d", seq);
+}
+
+static CommSequence _get_current_acked_seq() {
+  return g_comm_protocol_business.current_acked_seq;
 }
 
 static void _sync_set(CommProtocolPacket *packet) {
@@ -501,7 +511,11 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
     if (protocol_packet->sequence == _current_sequence_get()) {
       LOGD(UART_COMM_TAG, "recv ack frame");
       _set_acked_sync_flag();
-      InterruptableBreak(g_comm_protocol_business.interrupt_handle);
+      /* one sequence can only break once */
+      if (protocol_packet->sequence != _get_current_acked_seq()) {
+        _set_current_acked_seq(protocol_packet->sequence);
+        InterruptableBreak(g_comm_protocol_business.interrupt_handle);
+      }
     } else {
       LOGD(UART_COMM_TAG, "recv outdated ack frame");
     }
@@ -686,6 +700,7 @@ static void _protocol_business_init() {
   pthread_mutex_init(&g_comm_protocol_business.write_sync_lock, NULL);
   pthread_mutex_init(&g_comm_protocol_business.app_send_sync_lock, NULL);
   g_comm_protocol_business.interrupt_handle = InterruptCreate();
+  _set_current_acked_seq(((CommSequence)-1) >> 1);
 }
 
 static void _try_free_protocol_buffer() {
