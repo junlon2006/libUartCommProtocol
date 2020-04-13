@@ -425,7 +425,7 @@ static CommPacket* _packet_disassemble(CommProtocolPacket *protocol_packet) {
 static void _enlarge_protocol_buffer(char **orginal,
                                      CommPayloadLen *orginal_len) {
   char *p;
-  CommPayloadLen new_length = *orginal_len * 2 + sizeof(header); /* cover header */
+  CommPayloadLen new_length = *orginal_len * 2 + sizeof(struct header); /* cover header */
   p = (char *)uni_malloc(new_length);
   memcpy(p, *orginal, *orginal_len);
   uni_free(*orginal);
