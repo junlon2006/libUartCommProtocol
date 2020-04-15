@@ -632,19 +632,24 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
   if (LAYOUT_PAYLOAD_LEN_LOW_IDX == index) {
     length = recv_c;
     LOGD(UART_COMM_TAG, "len low=%d", length);
+    goto L_HEADER;
   }
 
   /* get payload length (high 8 bit) */
   if (LAYOUT_PAYLOAD_LEN_HIGH_IDX == index) {
     length += (((unsigned short)recv_c) << 8);
     LOGD(UART_COMM_TAG, "length=%d", length);
+    goto L_HEADER;
   }
 
+  /* get payload length src16 (low 8 bit) */
   if (LAYOUT_PAYLOAD_LEN_CRC_LOW_IDX == index) {
     length_crc16 = recv_c;
     LOGD(UART_COMM_TAG, "len crc low=%d", length_crc16);
+    goto L_HEADER;
   }
 
+  /* get payload length src16 (high 8 bit) */
   if (LAYOUT_PAYLOAD_LEN_CRC_HIGH_IDX == index) {
     length_crc16 += (((unsigned short)recv_c) << 8);
     LOGD(UART_COMM_TAG, "length_crc16=%d", length_crc16);
@@ -657,6 +662,7 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
     }
   }
 
+L_HEADER:
   /* set protocol header */
   if (index < sizeof(CommProtocolPacket)) {
     g_comm_protocol_business.protocol_buffer[index++] = recv_c;
