@@ -51,6 +51,7 @@
 #define uni_max(x, y)                 (x > y ? x : y)
 #define uni_malloc                    malloc
 #define uni_free                      free
+#define uni_realloc                   realloc
 #define false                         0
 #define true                          1
 
@@ -424,13 +425,9 @@ static CommPacket* _packet_disassemble(CommProtocolPacket *protocol_packet) {
 
 static void _enlarge_protocol_buffer(char **orginal,
                                      CommPayloadLen *orginal_len) {
-  char *p;
-  CommPayloadLen new_length = *orginal_len * 2 + sizeof(struct header); /* cover header */
-  p = (char *)uni_malloc(new_length);
-  memcpy(p, *orginal, *orginal_len);
-  uni_free(*orginal);
-  *orginal = p;
-  *orginal_len = new_length;
+  CommPayloadLen new_size = *orginal_len * 2 + sizeof(struct header); /* cover header */
+  *orginal = (char *)uni_realloc(*orginal, new_size);
+  *orginal_len = new_size;
 }
 
 /* small heap memory stays alway, only garbage collection big bins */
