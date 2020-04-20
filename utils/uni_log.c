@@ -68,7 +68,7 @@ static void _get_now_str(char *buf, int len) {
   s = tv.tv_sec;
   localtime_r(&s, &local);
   snprintf(buf, len, "%02d:%02d:%02d.%06ld ", local.tm_hour,
-           local.tm_min, local.tm_sec, (int64_t)tv.tv_usec);
+           local.tm_min, local.tm_sec, (long)tv.tv_usec);
 }
 
 static void _get_thread_id_str(char *buf, int len) {

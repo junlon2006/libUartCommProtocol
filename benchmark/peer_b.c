@@ -101,14 +101,19 @@ static int64_t _get_now_msec(void) {
 }
 
 static void _recv_comm_packet(CommPacket *packet) {
-  static int64_t start_time = _get_now_msec();
-  static int64_t start = _get_now_msec();
+  static int64_t start_time = -1;
+  static int64_t start = -1;
   int64_t now, cost;
   float avg_speed;
   static int64_t total_len = 0;
   static int seq = 0;
 
   LOGT(TAG, "recv frame... cmd=%d, len=%d", packet->cmd, packet->payload_len);
+
+  if (-1 == start_time) {
+    start_time = _get_now_msec();
+    start = start_time;
+  }
 
   UserData *user_data = (UserData*)packet->payload;
   assert(user_data->seq == ++seq);
