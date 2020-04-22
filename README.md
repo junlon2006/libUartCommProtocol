@@ -2,6 +2,7 @@
 UART Communication Protocol provides uart transmission like TCP/UDP feature  
 RWND = 1【low memory usage】easy way to make reliable transmission, support ACK/NACK only  
 ```
+跨平台协议栈版本：https://github.com/junlon2006/libUartCommProtocolV2  
 
 1：TCP like: uart in 921600bps mode [symbol error rate：1bit/1000000bit, one bit error every 122KB, payload_len 512 byte] can reach 64KB/s reliable transmission【full-duplex】total memory usage about 1KB.
 
