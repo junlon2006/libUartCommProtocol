@@ -1,4 +1,4 @@
-# libUartCommProtocol
+# libUartCommProtocol [posix Linux platform avaliable]
 跨平台协议栈版本：https://github.com/junlon2006/libUartCommProtocolV2  
 UART Communication Protocol provides uart transmission like TCP/UDP feature  
 RWND = 1【low memory usage】easy way to make reliable transmission, support ACK/NACK only  
