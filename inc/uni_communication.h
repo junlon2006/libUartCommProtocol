@@ -41,7 +41,7 @@ typedef int                 (*CommWriteHandler)(char *buf, int len);
 typedef struct {
   CommCmd        cmd; /* air condition ctrl cmd such as power_on, power_off */
   CommPayloadLen payload_len; /* parameter length of command */
-  char           payload[0];  /* parameter of command */
+  char*          payload;     /* parameter of command */
 } PACKED CommPacket;
 
 typedef struct {
