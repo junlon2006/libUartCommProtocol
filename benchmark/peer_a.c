@@ -116,7 +116,6 @@ static void _recv_comm_packet(CommPacket *packet) {
   }
 
   UserData *user_data = (UserData*)packet->payload;
-  assert(user_data->seq == ++seq);
   if (user_data->seq != ++seq) {
     err_cnt++;
     seq = user_data->seq;
@@ -127,14 +126,14 @@ static void _recv_comm_packet(CommPacket *packet) {
     cost = (now - start_time) / 1000;
     avg_speed = total_len / (float)(now - start_time) * 1000 / 1024;
     printf("[%d:ER%d] total=%ldKB, cost=%ld-%02ld:%02ld:%02ld, speed=%.2fKB/s, BW RATIO=%.2f%%\n",
-         BAUD_RATE,
-         err_cnt,
-         total_len >> 10,
-         cost / (3600 * 24),
-         cost % (3600 * 24) / 3600,
-         cost % (3600 * 24) % 3600 / 60,
-         cost % (3600 * 24) % 3600 % 60,
-         avg_speed, avg_speed / (BAUD_RATE >> 13) * 100);
+           BAUD_RATE,
+           err_cnt,
+           total_len >> 10,
+           cost / (3600 * 24),
+           cost % (3600 * 24) / 3600,
+           cost % (3600 * 24) % 3600 / 60,
+           cost % (3600 * 24) % 3600 % 60,
+           avg_speed, avg_speed / (BAUD_RATE >> 13) * 100);
     start = now;
   }
 }
@@ -152,7 +151,7 @@ static void* __recv_task(void *args) {
 }
 
 int main() {
-  LogLevelSet(N_LOG_WARN);
+  LogLevelSet(N_LOG_NONE);
 
   interrupt_handle = InterruptCreate();
 
