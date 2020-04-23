@@ -107,6 +107,7 @@ static void _recv_comm_packet(CommPacket *packet) {
   float avg_speed;
   static int64_t total_len = 0;
   static int seq = 0;
+  static int err_cnt = 0;
 
   LOGT(TAG, "recv frame... cmd=%d, len=%d", packet->cmd, packet->payload_len);
 
@@ -117,14 +118,18 @@ static void _recv_comm_packet(CommPacket *packet) {
 
   UserData *user_data = (UserData*)packet->payload;
   assert(user_data->seq == ++seq);
+  if (user_data->seq != ++seq) {
+    err_cnt++;
+    seq = user_data->seq;
+  }
   total_len += packet->payload_len;
   now = _get_now_msec();
   if (now - start > 1000) {
     cost = (now - start_time) / 1000;
     avg_speed = total_len / (float)(now - start_time) * 1000 / 1024;
-    LOGW(TAG, "[%d:ER%d] total=%dKB, cost=%d-%02d:%02d:%02d, speed=%.2fKB/s, BW RATIO=%.2f%%",
+    LOGW(TAG, "[%d:ER%d] total=%ldKB, cost=%d-%02ld:%02ld:%02ld, speed=%.2fKB/s, BW RATIO=%.2f%%",
          BAUD_RATE,
-         TRANSMISSION_ERROR_PER_BITS,
+         err_cnt,
          total_len >> 10,
          cost / (3600 * 24),
          cost % (3600 * 24) / 3600,

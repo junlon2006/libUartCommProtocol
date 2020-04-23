@@ -73,7 +73,6 @@
 /*------------------------------------*/
 
 typedef unsigned short CommChecksum;
-typedef unsigned char  CommSync;
 typedef unsigned char  CommSequence;
 typedef unsigned char  CommControl;
 
