@@ -1,5 +1,5 @@
 /**************************************************************************
- * Copyright (C) 2017-2017  Junlon2006
+ * Copyright (C) 2020-2020  Junlon2006
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,12 +28,10 @@
 #include "uni_interruptable.h"
 
 #include <string.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <sys/time.h>
 
-#define UART_COMM_TAG                 "uart_comm"
+#define TAG                           "uart_comm"
 
 #define DEFAULT_PROTOCOL_BUF_SIZE     (sizeof(struct header))
 #define PROTOCOL_BUF_GC_TRIGGER_SIZE  (1024 + sizeof(struct header))
@@ -41,10 +39,6 @@
 
 //TODO need refactor, calculate by baud rate
 #define WAIT_ACK_TIMEOUT_MSEC         (200)
-/* make sure ONE_FRAME_BYTE_TIMEOUT_MSEC < WAIT_ACK_TIMEOUT_MSEC
- * otherwise resend cannot work, set
- * WAIT_ACK_TIMEOUT_MSEC = 1.5 * ONE_FRAME_BYTE_TIMEOUT_MSEC */
-#define ONE_FRAME_BYTE_TIMEOUT_MSEC   (2000)
 #define TRY_RESEND_TIMES              (5)
 
 #define uni_min(x, y)                 (x < y ? x : y)
@@ -233,7 +227,7 @@ static void _payload_set(CommProtocolPacket *packet, char *buf, CommPayloadLen l
 }
 
 static char* _payload_get(CommProtocolPacket *packet) {
-  return ((char *)packet) + sizeof(CommProtocolPacket);
+  return packet->payload;
 }
 
 static CommPayloadLen _packet_len_get(CommProtocolPacket *packet) {
@@ -252,7 +246,7 @@ static int _checksum_valid(CommProtocolPacket *packet) {
   _checksum_calc(packet); /* calc checksum again */
   int valid = (checksum == _byte2_big_endian_2_u16(packet->checksum)); /* check whether checksum valid or not */
   if (!valid) {
-    LOGW(UART_COMM_TAG, "check crc failed, [%04x, %04x]", checksum,
+    LOGW(TAG, "check crc failed, [%04x, %04x]", checksum,
          _byte2_big_endian_2_u16(packet->checksum));
   }
   return valid;
@@ -287,7 +281,7 @@ static int _wait_ack(CommAttribute *attribute, CommProtocolPacket *packet) {
   InterruptableSleep(g_comm_protocol_business.interrupt_handle, WAIT_ACK_TIMEOUT_MSEC);
 
   if (!g_comm_protocol_business.acked) {
-    LOGW(UART_COMM_TAG, "wait uart ack timeout. seq=%d, cmd=%d, ctrl=%d, len=%d",
+    LOGW(TAG, "wait uart ack timeout. seq=%d, cmd=%d, ctrl=%d, len=%d",
          packet->sequence, _byte2_big_endian_2_u16(packet->cmd),
          packet->control, _byte2_big_endian_2_u16(packet->payload_len));
   }
@@ -298,6 +292,7 @@ static int _wait_ack(CommAttribute *attribute, CommProtocolPacket *packet) {
 static CommProtocolPacket* _packet_alloc(int payload_len) {
   CommProtocolPacket *packet = (CommProtocolPacket *)uni_malloc(sizeof(CommProtocolPacket) + payload_len);
   if (packet) {
+    /* only bzero struct header */
     memset(packet, 0, sizeof(CommProtocolPacket));
   }
   return packet;
@@ -399,7 +394,6 @@ static int _assemble_and_send_frame(CommCmd cmd,
 
   ret = _write_uart(packet, attribute);
   _packet_free(packet);
-
   return ret;
 }
 
@@ -417,14 +411,13 @@ int CommProtocolPacketAssembleAndSend(CommCmd cmd, char *payload,
 static int _packet_disassemble(CommProtocolPacket *protocol_packet,
                                CommPacket *packet) {
   if (!_checksum_valid(protocol_packet)) {
-    LOGD(UART_COMM_TAG, "checksum failed");
+    LOGD(TAG, "checksum failed");
     return -1;
   }
 
   packet->cmd         = _byte2_big_endian_2_u16(protocol_packet->cmd);
   packet->payload_len = _payload_len_get(protocol_packet);
   packet->payload     = _payload_get(protocol_packet);
-
   return 0;
 }
 
@@ -441,7 +434,7 @@ static void _try_garbage_collection_protocol_buffer(char **buffer,
     uni_free(*buffer);
     *buffer = NULL;
     *length = DEFAULT_PROTOCOL_BUF_SIZE;
-    LOGD(UART_COMM_TAG, "free buffer=%p, len=%u", *buffer, *length);
+    LOGD(TAG, "free buffer=%p, len=%u", *buffer, *length);
   }
 }
 
@@ -458,26 +451,25 @@ static void _protocol_buffer_alloc(char **buffer,
                                    unsigned int index) {
   if (NULL == *buffer) {
     *buffer = (char *)uni_malloc(*length);
-    LOGD(UART_COMM_TAG, "init buffer=%p, len=%u", *buffer, *length);
+    LOGD(TAG, "init buffer=%p, len=%u", *buffer, *length);
     return;
   }
 
   if (*length <= index) {
     _enlarge_protocol_buffer(buffer, length);
-    LOGD(UART_COMM_TAG, "protocol buffer enlarge. p=%p, new len=%u",
-         *buffer, *length);
+    LOGD(TAG, "protocol buffer enlarge. p=%p, new len=%u", *buffer, *length);
     return;
   }
 }
 
 static void _send_nack_frame(CommSequence seq) {
   _assemble_and_send_frame(0, NULL, 0, NULL, seq, false, true);
-  LOGW(UART_COMM_TAG, "send nack seq=%d", seq);
+  LOGW(TAG, "send nack seq=%d", seq);
 }
 
 static void _send_ack_frame(CommSequence seq) {
   _assemble_and_send_frame(0, NULL, 0, NULL, seq, true, false);
-  LOGD(UART_COMM_TAG, "send ack seq=%d", seq);
+  LOGD(TAG, "send ack seq=%d", seq);
 }
 
 static void _do_ack(CommProtocolPacket *protocol_packet) {
@@ -492,8 +484,8 @@ static uni_bool _is_duplicate_frame(CommProtocolPacket *protocol_packet) {
   duplicate = (last_recv_packet_seq == (int)protocol_packet->sequence);
   last_recv_packet_seq = protocol_packet->sequence;
   if (duplicate) {
-    LOGW(UART_COMM_TAG, "duplicate frame seq=%d, cmd=%d",
-         protocol_packet->sequence, _byte2_big_endian_2_u16(protocol_packet->cmd));
+    LOGW(TAG, "duplicate frame seq=%d, cmd=%d", protocol_packet->sequence,
+         _byte2_big_endian_2_u16(protocol_packet->cmd));
   }
   return duplicate;
 }
@@ -503,14 +495,14 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
 
   /* when application not register hook, ignore all */
   if (NULL == g_comm_protocol_business.on_recv_frame) {
-    LOGW(UART_COMM_TAG, "donot register recv_frame hook");
+    LOGW(TAG, "donot register recv_frame hook");
     return;
   }
 
   /* ack frame donnot notify application, ignore it now */
   if (_is_acked_packet(protocol_packet)) {
     if (protocol_packet->sequence == _current_sequence_get()) {
-      LOGD(UART_COMM_TAG, "recv ack frame");
+      LOGD(TAG, "recv ack frame");
       _set_acked_sync_flag();
       /* one sequence can only break once */
       if (protocol_packet->sequence != _get_current_acked_seq()) {
@@ -518,7 +510,7 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
         InterruptableBreak(g_comm_protocol_business.interrupt_handle);
       }
     } else {
-      LOGD(UART_COMM_TAG, "recv outdated ack frame");
+      LOGD(TAG, "recv outdated ack frame");
     }
     return;
   }
@@ -527,10 +519,10 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
   if (_is_nacked_packet(protocol_packet)) {
     /* use select can cover payload_len_crc16 error case, sem sometimes not */
     if (protocol_packet->sequence == _current_sequence_get()) {
-      LOGW(UART_COMM_TAG, "recv useful nack frame, seq=%d", protocol_packet->sequence);
+      LOGW(TAG, "recv useful nack frame, seq=%d", protocol_packet->sequence);
       InterruptableBreak(g_comm_protocol_business.interrupt_handle);
     } else {
-      LOGW(UART_COMM_TAG, "recv outdated nack frame, seq=%d, cur_seq=%d",
+      LOGW(TAG, "recv outdated nack frame, seq=%d, cur_seq=%d",
            protocol_packet->sequence, _current_sequence_get());
     }
     return;
@@ -540,7 +532,7 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
   CommPacket packet;
   if (0 != _packet_disassemble(protocol_packet, &packet)) {
     _send_nack_frame(protocol_packet->sequence);
-    LOGW(UART_COMM_TAG, "disassemble packet failed");
+    LOGW(TAG, "disassemble packet failed");
     return;
   }
 
@@ -553,37 +545,12 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
   }
 }
 
-static long _get_clock_time_ms(void) {
-  struct timespec ts;
-  if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-    return (ts.tv_sec * 1000L + (ts.tv_nsec / 1000000));
-  }
-
-  return 0;
-}
-
-static uni_bool _bytes_coming_speed_too_slow(unsigned int index) {
-  static long last_byte_coming_timestamp = 0;
-  long now = _get_clock_time_ms();
-  uni_bool timeout = false;
-
-  /* lost one check when overflow, but it is ok */
-  if (now - last_byte_coming_timestamp > ONE_FRAME_BYTE_TIMEOUT_MSEC &&
-      LAYOUT_SYNC_IDX != index) {
-    timeout = true;
-    LOGW(UART_COMM_TAG, "[%u->%u]", last_byte_coming_timestamp, now);
-  }
-
-  last_byte_coming_timestamp = now;
-  return timeout;
-}
-
 static uni_bool _is_payload_len_crc16_valid(CommPayloadLen length, CommChecksum crc) {
   uint16_t length_crc = crc16((const char *)&length, sizeof(CommPayloadLen));
   if (crc != length_crc) {
-    LOGW(UART_COMM_TAG, "crc_recv=%d, crc_calc=%d", crc, length_crc);
+    LOGW(TAG, "crc_recv=%d, crc_calc=%d", crc, length_crc);
   }
-  return (uint16_t)crc == length_crc;
+  return crc == length_crc;
 }
 
 static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
@@ -592,14 +559,6 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
   static uint16_t length_crc16 = 0;
   static CommPayloadLen protocol_buffer_length = DEFAULT_PROTOCOL_BUF_SIZE;
   CommProtocolPacket *packet;
-
-  /* check timestamp to reset status when physical error */
-  if (_bytes_coming_speed_too_slow(index)) {
-    LOGW(UART_COMM_TAG, "reset protocol buffer automatically[%d]", index);
-    _reset_protocol_buffer_status(&index, &length, &length_crc16);
-    _try_garbage_collection_protocol_buffer(&g_comm_protocol_business.protocol_buffer,
-                                            &protocol_buffer_length);
-  }
 
   /* protect heap use, cannot alloc large than 8K now */
   if (_is_protocol_buffer_overflow(protocol_buffer_length)) {
@@ -612,7 +571,7 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
     _reset_protocol_buffer_status(&index, &length, &length_crc16);
     _try_garbage_collection_protocol_buffer(&g_comm_protocol_business.protocol_buffer,
                                             &protocol_buffer_length);
-    LOGW(UART_COMM_TAG, "recv invalid frame, payload too long");
+    LOGW(TAG, "recv invalid frame, payload too long");
     return;
   }
 
@@ -625,7 +584,7 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
       g_comm_protocol_business.protocol_buffer[index++] = recv_c;
     } else {
       _reset_protocol_buffer_status(&index, &length, &length_crc16);
-      LOGD(UART_COMM_TAG, "nonstandord sync byte, please check");
+      LOGD(TAG, "nonstandord sync byte, please check");
     }
 
     return;
@@ -633,30 +592,30 @@ static void _protocol_buffer_generate_byte_by_byte(unsigned char recv_c) {
 
   /* get payload length (high 8 bit) */
   if (LAYOUT_PAYLOAD_LEN_HIGH_IDX == index) {
-    length = (((unsigned short)recv_c) << 8);
-    LOGD(UART_COMM_TAG, "length=%d", length);
+    length = (((uint16_t)recv_c) << 8);
+    LOGD(TAG, "length=%d", length);
     goto L_HEADER;
   }
 
   /* get payload length (low 8 bit) */
   if (LAYOUT_PAYLOAD_LEN_LOW_IDX == index) {
     length += recv_c;
-    LOGD(UART_COMM_TAG, "length=%d", length);
+    LOGD(TAG, "length=%d", length);
     goto L_HEADER;
   }
 
   /* get payload length src16 (high 8 bit) */
   if (LAYOUT_PAYLOAD_LEN_CRC_HIGH_IDX == index) {
-    length_crc16 = (((unsigned short)recv_c) << 8);
-    LOGD(UART_COMM_TAG, "len crc=%d", length_crc16);
+    length_crc16 = (((uint16_t)recv_c) << 8);
+    LOGD(TAG, "len crc=%d", length_crc16);
     goto L_HEADER;
   }
 
   if (LAYOUT_PAYLOAD_LEN_CRC_LOW_IDX == index) {
     length_crc16 += recv_c;
-    LOGD(UART_COMM_TAG, "length_crc16=%d", length_crc16);
+    LOGD(TAG, "length_crc16=%d", length_crc16);
     if (!_is_payload_len_crc16_valid(length, length_crc16)) {
-      LOGE(UART_COMM_TAG, "length crc check failed");
+      LOGE(TAG, "length crc check failed");
       _reset_protocol_buffer_status(&index, &length, &length_crc16);
       packet = (CommProtocolPacket *)g_comm_protocol_business.protocol_buffer;
       _send_nack_frame(packet->sequence);
@@ -680,7 +639,7 @@ L_HEADER:
 L_END:
   /* callback protocol buffer */
   if (sizeof(CommProtocolPacket) <= index && 0 == length) {
-    LOGD(UART_COMM_TAG, "assemble new frame, now callback");
+    LOGD(TAG, "assemble new frame, now callback");
     _one_protocol_frame_process(g_comm_protocol_business.protocol_buffer);
     _reset_protocol_buffer_status(&index, &length, &length_crc16);
     _try_garbage_collection_protocol_buffer(&g_comm_protocol_business.protocol_buffer,
