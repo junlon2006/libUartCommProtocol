@@ -19,5 +19,7 @@ Linux x86 benchmark demo, ubuntu 16.04 recommend
 ./peera
 ./peerb
 ```
+benchmark
+RTT rtos下84KB/s UART理论传输能力，TCP模式下极限性能71KB/s，BW RATIO≈84.5%
 ![image](https://github.com/junlon2006/libUartCommProtocol/blob/master/benchmark/images/logger.png)  
 
