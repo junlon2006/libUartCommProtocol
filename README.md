@@ -23,5 +23,6 @@ benchmark
 RT-Thread rtos下UDP模式84KB/s UART传输能力，同软硬件条件下TCP模式极限性能71KB/s，BW RATIO≈84.5%(需考虑串口连接线长度，目前几毫米级别)   
 协议栈性能瓶颈：（不考虑RWND=1吞吐问题，设计如此）checksum约占30%性能开销，crc16性能远低于TCP checksum算法，性能差2~3倍  
 tcp checksum https://github.com/junlon2006/linux-c/issues/96  
+Uart通道下忽略该瓶颈  
 ![image](https://github.com/junlon2006/libUartCommProtocol/blob/master/benchmark/images/logger.png)  
 
