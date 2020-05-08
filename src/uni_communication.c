@@ -211,8 +211,7 @@ static void _payload_len_set(CommProtocolPacket *packet, CommPayloadLen payload_
 }
 
 static void _payload_len_crc16_set(CommProtocolPacket *packet) {
-  uint16_t payload_len = _byte2_big_endian_2_u16(packet->payload_len);
-  uint16_t checksum = crc16((const char *)&payload_len, sizeof(CommPayloadLen));
+  uint16_t checksum = crc16((const char *)packet->payload_len, sizeof(CommPayloadLen));
   _u16_2_byte2_big_endian(checksum, packet->payload_len_crc16);
 }
 
@@ -546,7 +545,9 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
 }
 
 static uni_bool _is_payload_len_crc16_valid(CommPayloadLen length, CommChecksum crc) {
-  uint16_t length_crc = crc16((const char *)&length, sizeof(CommPayloadLen));
+  unsigned char len[2];
+  _u16_2_byte2_big_endian(length, len);
+  uint16_t length_crc = crc16((const char *)len, sizeof(CommPayloadLen));
   if (crc != length_crc) {
     LOGW(TAG, "crc_recv=%d, crc_calc=%d", crc, length_crc);
   }
