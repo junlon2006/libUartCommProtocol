@@ -211,7 +211,7 @@ static void _payload_len_set(CommProtocolPacket *packet, CommPayloadLen payload_
 }
 
 static void _payload_len_crc16_set(CommProtocolPacket *packet) {
-  uint16_t checksum = crc16((const char *)&packet->payload_len, sizeof(CommPayloadLen));
+  uint16_t checksum = crc16((const char *)packet->payload_len, sizeof(CommPayloadLen));
   _u16_2_byte2_big_endian(checksum, packet->payload_len_crc16);
 }
 
