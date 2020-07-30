@@ -105,6 +105,7 @@ typedef struct {
   CommSequence          current_acked_seq;  /* current received sequence */
   char                  *protocol_buffer;
   InterruptHandle       interrupt_handle;
+  uni_bool              inited;
 } CommProtocolBusiness;
 
 static unsigned char        g_sync[6] = {'u', 'A', 'r', 'T', 'c', 'P'};
@@ -650,6 +651,10 @@ L_END:
 
 void CommProtocolReceiveUartData(unsigned char *buf, int len) {
   int i;
+  if (!g_comm_protocol_business.inited) {
+    return;
+  }
+
   for (i = 0; i < len; i++) {
     _protocol_buffer_generate_byte_by_byte(buf[i]);
   }
@@ -669,6 +674,7 @@ static void _protocol_business_init() {
   pthread_mutex_init(&g_comm_protocol_business.app_send_sync_lock, NULL);
   g_comm_protocol_business.interrupt_handle = InterruptCreate();
   _set_current_acked_seq(((CommSequence)-1) >> 1);
+  g_comm_protocol_business.inited = 1;
 }
 
 static void _try_free_protocol_buffer() {
