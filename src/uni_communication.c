@@ -503,7 +503,8 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
   if (_is_acked_packet(protocol_packet)) {
     LOGD(UART_COMM_TAG, "recv ack frame");
     /* one sequence can only break once */
-    if (protocol_packet->sequence != _get_current_acked_seq()) {
+    if (protocol_packet->sequence == _current_sequence_get() &&
+        protocol_packet->sequence != _get_current_acked_seq()) {
       _set_acked_sync_flag();
       _set_current_acked_seq(protocol_packet->sequence);
       InterruptableBreak(g_comm_protocol_business.interrupt_handle);
