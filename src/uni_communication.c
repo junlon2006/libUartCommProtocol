@@ -542,8 +542,7 @@ static void _one_protocol_frame_process(char *protocol_buffer) {
   _do_ack(protocol_packet);
 
   /* udp frame reset current acked seq -1 */
-  if (_is_udp_packet(protocol_packet)) {
-    LOGT(TAG, "reset cur acked sequence to -1");
+  if (_get_current_acked_seq() != -1 && _is_udp_packet(protocol_packet)) {
     _set_current_acked_seq(-1);
   }
 
